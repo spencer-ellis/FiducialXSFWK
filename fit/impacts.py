@@ -87,15 +87,26 @@ def processCmd(cmd, quiet=0):
         raise RuntimeError(f"Command '{cmd}' failed with exit status: {p.returncode}")
     return output
 
-def run_special_impact(obsName, workspace_tag, poi, output_tag, set_params, unblind):
+def run_special_impact(obsName, workspace_tag, pois, output_tag, set_params, unblind, plot_pois=None):
+    if isinstance(pois, str):
+        pois = [pois]
+    if plot_pois is None:
+        plot_pois = pois
+    elif isinstance(plot_pois, str):
+        plot_pois = [plot_pois]
+
     workspace = path['eos_path']+'combine_files/SM_125_all_13TeV_xs_'+obsName+'_bin_v3_'+workspace_tag+'_'+str(opt.YEAR)+'.root'
     output_base = 'impacts_'+opt.YEAR+'_v3_'+obsName+'_'+output_tag+'_'
     json_name = output_base + ('data.json' if unblind else 'asimov.json')
-    poi_range = 'MH=125.38,125.38:%s=0,10' %(poi)
+    poi_list = ','.join(pois)
+    poi_range = 'MH=125.38,125.38'
+    for poi in pois:
+        poi_range += ':%s=0,10' %poi
     common = ' -d '+workspace+' -m 125.38 --cminDefaultMinimizerStrategy 0 --robustFit 1'
-    common += ' --redefineSignalPOIs '+poi
+    common += ' --redefineSignalPOIs '+poi_list
     common += ' --setParameterRanges '+poi_range
     common += ' --setParameters '+set_params
+    common += ' --floatOtherPOIs=1 --saveInactivePOI=1 --saveFitResult'
 
     cmd = 'combineTool.py -M Impacts'+common+' --doInitialFit'
     if not unblind:
@@ -125,12 +136,13 @@ def run_special_impact(obsName, workspace_tag, poi, output_tag, set_params, unbl
     processCmd(cmd)
 
     suffix = 'data' if unblind else 'asimov'
-    cmd = 'plotImpacts.py --blind -i '+json_name+' -o impacts_'+opt.YEAR+'_v3_'+obsName+'_'+output_tag+'_'+suffix+' --POI '+poi
-    print('---------------------------')
-    print(cmd, '\n')
-    print('---------------------------')
-    cmds.append(cmd)
-    processCmd(cmd)
+    for poi in plot_pois:
+        cmd = 'plotImpacts.py --blind -i '+json_name+' -o impacts_'+opt.YEAR+'_v3_'+obsName+'_'+output_tag+'_'+poi+'_'+suffix+' --POI '+poi
+        print('---------------------------')
+        print(cmd, '\n')
+        print('---------------------------')
+        cmds.append(cmd)
+        processCmd(cmd)
 
 def impactPlots(obsName):
 
@@ -399,27 +411,45 @@ def impactPlots(obsName):
         if opt.DO_VBF:
             if obsName_base != 'absdetajj_mjj' or nBins != 4:
                 raise RuntimeError('--doVBF expects "absdetajj vs mjj" to have bins 0-3, but found '+str(nBins)+' bins')
-            vbf_poi = 'r_VBFH_'+obsName_poi+'_3'
-            total_minus_vbf_poi = 'r_totalMinusVBF_'+obsName_poi+'_3'
-            vbf_set_params = 'MH=125.38,'+vbf_poi+'=1'
-            total_minus_vbf_set_params = 'MH=125.38,'+total_minus_vbf_poi+'=1'
+            for obsBin in range(nBins):
+                vbf_poi = 'r_VBFH_'+obsName_poi+'_'+str(obsBin)
+                other_prod_poi = 'r_otherProd_'+obsName_poi+'_'+str(obsBin)
+                total_minus_vbf_poi = 'r_totalMinusVBF_'+obsName_poi+'_'+str(obsBin)
+                ggh_extrap_poi = 'r_VBFH_ggHExtrap_'+obsName_poi+'_'+str(obsBin)
+                ggh_fixed_poi = 'r_VBFH_ggHFixed_'+obsName_poi+'_'+str(obsBin)
 
-            run_special_impact(
-                obsName,
-                'doVBF',
-                vbf_poi,
-                'r_VBFH_'+obsName_poi+'_3',
-                vbf_set_params,
-                opt.UNBLIND
-            )
-            run_special_impact(
-                obsName,
-                'totalMinusVBF',
-                total_minus_vbf_poi,
-                'r_totalMinusVBF_'+obsName_poi+'_3',
-                total_minus_vbf_set_params,
-                opt.UNBLIND
-            )
+                run_special_impact(
+                    obsName,
+                    'doVBF',
+                    [vbf_poi, other_prod_poi],
+                    'r_VBFH_vs_otherProd_'+obsName_poi+'_'+str(obsBin),
+                    'MH=125.38,'+vbf_poi+'=1,'+other_prod_poi+'=1',
+                    opt.UNBLIND
+                )
+                run_special_impact(
+                    obsName,
+                    'totalMinusVBF',
+                    total_minus_vbf_poi,
+                    'r_totalMinusVBF_'+obsName_poi+'_'+str(obsBin),
+                    'MH=125.38,'+total_minus_vbf_poi+'=1',
+                    opt.UNBLIND
+                )
+                run_special_impact(
+                    obsName,
+                    'ggHExtrap',
+                    ggh_extrap_poi,
+                    'r_VBFH_ggHExtrap_'+obsName_poi+'_'+str(obsBin),
+                    'MH=125.38,'+ggh_extrap_poi+'=1',
+                    opt.UNBLIND
+                )
+                run_special_impact(
+                    obsName,
+                    'ggHFixed',
+                    ggh_fixed_poi,
+                    'r_VBFH_ggHFixed_'+obsName_poi+'_'+str(obsBin),
+                    'MH=125.38,'+ggh_fixed_poi+'=1',
+                    opt.UNBLIND
+                )
 
     elif opt.PHYSICSMODEL=='v2':
         # for obsBin in ['2e2muBin0','4eBin0','4muBin0']:

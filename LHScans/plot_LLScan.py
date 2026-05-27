@@ -49,6 +49,12 @@ grootargs = []
 def callback_rootargs(option, opt, value, parser):
     grootargs.append(opt)
 
+def tfile_is_good(filename):
+    try:
+        return plot.TFileIsGood(filename)
+    except OSError:
+        return False
+
 ### Define function for parsing options
 def parseOptions():
 
@@ -66,7 +72,7 @@ def parseOptions():
     parser.add_option('',   '--v4', action='store_true', dest='V4', default= False, help='Print NLL scans for v4 physics model')
     parser.add_option('',   '--interpolation', action='store_true', dest='INTER', default=False, help='Calculate acceptances at 124 and 126 GeV')
     parser.add_option('',   '--ZZfloating',action='store_true', dest='ZZ',default=False, help='Let ZZ normalisation to float')
-    parser.add_option('',   '--doVBF', action='store_true', dest='DO_VBF', default=False, help='Also plot the floating VBF POI for absdetajj vs mjj')
+    parser.add_option('',   '--doVBF', action='store_true', dest='DO_VBF', default=False, help='Also plot the floating VBF POIs for each absdetajj vs mjj bin')
 
     # store options and arguments as global variables
     global opt, args
@@ -81,9 +87,15 @@ parseOptions()
 sys.argv = grootargs
 
 def read(scan, param, files, ycut):
-    goodfiles = [f for f in files if plot.TFileIsGood(f)]
+    goodfiles = [f for f in files if tfile_is_good(f)]
+    if not goodfiles:
+        print('Skipping missing scan input(s):', ', '.join(files))
+        return None
     limit = plot.MakeTChain(goodfiles, 'limit')
     graph = plot.TGraphFromTree(limit, param, '2*deltaNLL', 'quantileExpected > -1.5')
+    if graph is None or graph.GetN() < 2:
+        print('Skipping empty scan:', scan, 'from', ', '.join(goodfiles))
+        return None
     graph.SetName(scan)
     graph.Sort()
     plot.RemoveGraphXDuplicates(graph)
@@ -97,6 +109,8 @@ def Eval(obj, x, params):
 
 def BuildScan(scan, param, files, color, yvals, ycut):
     graph = read(scan, param, files, ycut)
+    if graph is None:
+        return None
     bestfit = None
 
     graph.SetMarkerColor(color)
@@ -108,7 +122,9 @@ def BuildScan(scan, param, files, color, yvals, ycut):
     NAMECOUNTER += 1
     func.SetLineColor(color)
     func.SetLineWidth(3)
-    assert(bestfit is not None)
+    if bestfit is None:
+        print('Skipping scan with no best fit:', scan, 'from', ', '.join(files))
+        return None
     crossings = {}
     cross_1sig = None
     cross_2sig = None
@@ -155,6 +171,107 @@ def quadrature_subtract(total_unc, stat_unc):
         print('Warning: stat-only uncertainty is larger than stat+sys; setting syst component to 0.')
         return 0.0
     return math.sqrt(diff)
+
+def build_2d_scan_graph(fname, poi_x, poi_y):
+    if not tfile_is_good(fname):
+        return None, None
+    in_file = TFile.Open(fname, "READ")
+    tree = in_file.Get("limit")
+    graph = TGraph2D()
+    graph.SetName("scan2d_"+str(abs(hash(fname)) % 1000000))
+    best = None
+    ipoint = 0
+    for entry in tree:
+        if hasattr(entry, 'quantileExpected') and entry.quantileExpected <= -1.5:
+            continue
+        xval = getattr(entry, poi_x)
+        yval = getattr(entry, poi_y)
+        zval = 2.0 * entry.deltaNLL
+        if zval < 0 and abs(zval) < 1e-6:
+            zval = 0.0
+        graph.SetPoint(ipoint, xval, yval, zval)
+        if best is None or zval < best[2]:
+            best = (xval, yval, zval)
+        ipoint += 1
+    in_file.Close()
+    if graph.GetN() < 3:
+        return None, None
+    return graph, best
+
+def plot_vbf_2d_scans(obsName, raw_nBins, obs_bins, label, label_2nd, year, inputPath):
+    outdir = os.path.join(path['plots_path'], "SCANS", obsName)
+    os.makedirs(outdir, exist_ok=True)
+    scan_specs = [
+        ("Expected", "expected", "", ".123456.root"),
+        ("Expected - stat-only", "expected_statOnly", "_NoSys", ".123456.root"),
+    ]
+    if opt.UNBLIND:
+        scan_specs += [
+            ("Observed", "observed", "", ".root"),
+            ("Observed - stat-only", "observed_statOnly", "_NoSys", ".root"),
+        ]
+
+    for physical_bin in range(raw_nBins):
+        poi_x = 'r_VBFH_'+obsName+'_'+str(physical_bin)
+        poi_y = 'r_otherProd_'+obsName+'_'+str(physical_bin)
+        scan_name = 'r_VBFH_vs_otherProd_'+str(physical_bin)
+        for title, suffix, scan_suffix, file_suffix in scan_specs:
+            fname = os.path.join(
+                inputPath,
+                'higgsCombine_'+obsName+'_'+scan_name+scan_suffix+'.MultiDimFit.mH125.38'+file_suffix
+            )
+            graph, best = build_2d_scan_graph(fname, poi_x, poi_y)
+            if graph is None:
+                print('Skipping missing or empty 2D VBF scan:', fname)
+                continue
+
+            c2 = TCanvas('c_'+scan_name+'_'+suffix, '', 800, 700)
+            c2.SetRightMargin(0.16)
+            c2.SetLeftMargin(0.12)
+            c2.SetBottomMargin(0.12)
+            graph.SetTitle('')
+            graph.SetNpx(80)
+            graph.SetNpy(80)
+            graph.SetMinimum(0.0)
+            graph.SetMaximum(10.0)
+            graph.Draw('COLZ')
+            graph.GetXaxis().SetTitle('r_{VBF}')
+            graph.GetYaxis().SetTitle('r_{other prod.}')
+            graph.GetZaxis().SetTitle('2 #Delta NLL')
+            graph.GetXaxis().SetTitleOffset(1.15)
+            graph.GetYaxis().SetTitleOffset(1.25)
+            graph.GetZaxis().SetTitleOffset(1.25)
+
+            if best is not None:
+                marker = TMarker(best[0], best[1], 34)
+                marker.SetMarkerColor(kBlack)
+                marker.SetMarkerSize(1.8)
+                marker.Draw('SAME')
+
+            latex = TLatex()
+            latex.SetNDC()
+            latex.SetTextFont(42)
+            latex.SetTextSize(0.035)
+            latex.DrawLatex(0.16, 0.92, title)
+            latex.DrawLatex(0.16, 0.86, format_double_diff_bin_line(obs_bins[physical_bin], label, label_2nd))
+            latex.DrawLatex(0.60, 0.92, _lumi+' fb^{-1} (13.6 TeV)')
+
+            c2.Update()
+            c2.SaveAs(os.path.join(
+                outdir,
+                year+'_lhscan_2d_'+obsName+'_'+scan_name+'_'+suffix+'.png'
+            ))
+
+def get_vbf_scan_specs(raw_nBins):
+    vbf_scan_kinds = ['vbf', 'other_prod', 'total_minus_vbf', 'ggh_extrap', 'ggh_fixed']
+    return [
+        {
+            'kind': kind,
+            'physical_bin': physical_bin,
+        }
+        for physical_bin in range(raw_nBins)
+        for kind in vbf_scan_kinds
+    ]
 
 yvals = [1., 3.84]
 
@@ -329,6 +446,19 @@ obs_bins = _temp.observableBins
 print(obs_bins)
 _temp = __import__('xsec_'+obsName_for_inputs+'_'+opt.YEAR, globals(), locals(), ['xsec']) # , -1)
 xsec = _temp.xsec
+
+def load_fidxs(process):
+    module_obs = obsName_for_inputs + '_zzfloating' if opt.ZZ else obsName_for_inputs
+    module_name = 'fidXS_'+module_obs+'_'+process+'_'+opt.YEAR
+    module = __import__(module_name, globals(), locals(), ['fidXS'])
+    return module.fidXS
+
+fidXS_components = {}
+if opt.DO_VBF:
+    fidXS_components['VBFH'] = load_fidxs('VBFH')
+    fidXS_components['ggH'] = load_fidxs('ggH')
+    fidXS_components['VH'] = load_fidxs('VH')
+    fidXS_components['ttH'] = load_fidxs('ttH')
 sys.path.remove(path['eos_path']+'inputs')
 
 # _poi    = 'SigmaBin'
@@ -351,15 +481,13 @@ if opt.ZZ and 'zzfloating' in obsName:
     nBins = raw_nBins + len(zznorm_indices)
 else:
     nBins = raw_nBins
-vbf_scan_index = None
-total_minus_vbf_scan_index = None
+vbf_special_scan_specs = {}
 if opt.DO_VBF:
     if obsName.replace('_zzfloating', '') != 'absdetajj_mjj' or raw_nBins != 4:
         raise RuntimeError('--doVBF expects "absdetajj vs mjj" to have bins 0-3, but found '+str(raw_nBins)+' bins')
-    vbf_scan_index = nBins
-    nBins += 1
-    total_minus_vbf_scan_index = nBins
-    nBins += 1
+    for scan_spec in get_vbf_scan_specs(raw_nBins):
+        vbf_special_scan_specs[nBins] = scan_spec
+        nBins += 1
 
 if v4_flag: nBins = (len(obs_bins)-1)*2
 if v4_flag and doubleDiff: nBins = len(obs_bins)*2
@@ -369,14 +497,44 @@ for i in range(nBins):
 
     print("BIN: ", i)
     _bin = i
-    is_vbf = opt.DO_VBF and _bin == vbf_scan_index
-    is_total_minus_vbf = opt.DO_VBF and _bin == total_minus_vbf_scan_index
-    vbf_physical_bin = raw_nBins - 1
+    vbf_special_scan = vbf_special_scan_specs.get(_bin)
+    vbf_scan_kind = vbf_special_scan['kind'] if vbf_special_scan else None
+    is_vbf = vbf_scan_kind == 'vbf'
+    is_other_prod = vbf_scan_kind == 'other_prod'
+    is_total_minus_vbf = vbf_scan_kind == 'total_minus_vbf'
+    is_ggh_extrap = vbf_scan_kind == 'ggh_extrap'
+    is_ggh_fixed = vbf_scan_kind == 'ggh_fixed'
+    is_vbf_special = is_vbf or is_other_prod or is_total_minus_vbf or is_ggh_extrap or is_ggh_fixed
+    vbf_physical_bin = vbf_special_scan['physical_bin'] if vbf_special_scan else None
+    vbf_component_xs = None
+    vbf_result_label = None
+    vbf_plot_label = None
 
     if is_vbf:
         _obs_bin = 'r_VBFH_'+str(vbf_physical_bin)
+        vbf_component_xs = fidXS_components['VBFH'][vbf_physical_bin]
+        vbf_result_label = 'VBFH'
+        vbf_plot_label = 'VBF'
+    elif is_other_prod:
+        _obs_bin = 'r_otherProd_'+str(vbf_physical_bin)
+        vbf_component_xs = xsec['SigmaBin'+str(vbf_physical_bin)] - fidXS_components['VBFH'][vbf_physical_bin]
+        vbf_result_label = 'otherProd'
+        vbf_plot_label = 'other prod.'
     elif is_total_minus_vbf:
         _obs_bin = 'r_totalMinusVBF_'+str(vbf_physical_bin)
+        vbf_component_xs = xsec['SigmaBin'+str(vbf_physical_bin)] - fidXS_components['VBFH'][vbf_physical_bin]
+        vbf_result_label = 'totalMinusVBF'
+        vbf_plot_label = 'total-VBF'
+    elif is_ggh_extrap:
+        _obs_bin = 'r_VBFH_ggHExtrap_'+str(vbf_physical_bin)
+        vbf_component_xs = fidXS_components['VBFH'][vbf_physical_bin]
+        vbf_result_label = 'VBFH_ggHExtrap'
+        vbf_plot_label = 'VBF, ggH extrap.'
+    elif is_ggh_fixed:
+        _obs_bin = 'r_VBFH_ggHFixed_'+str(vbf_physical_bin)
+        vbf_component_xs = fidXS_components['VBFH'][vbf_physical_bin]
+        vbf_result_label = 'VBFH_ggHFixed'
+        vbf_plot_label = 'VBF, ggH fixed'
     elif opt.ZZ and zznorm_indices is not None:
         if _bin < raw_nBins:
             _obs_bin = _poi+str(i)
@@ -423,7 +581,7 @@ for i in range(nBins):
     scan_idx_max = idx_max
     has_observed_scan = opt.UNBLIND
 
-    if is_vbf or is_total_minus_vbf:
+    if is_vbf_special:
         scan_fileList = []
         scan_titles = []
         scan_colors = []
@@ -431,7 +589,7 @@ for i in range(nBins):
             rfile = file_template.replace('OBS', _obs_bin)
             rfile = rfile.replace('BIN', obsName)
             fname = inputPath+rfile
-            if plot.TFileIsGood(fname):
+            if tfile_is_good(fname):
                 scan_fileList.append(file_template)
                 scan_titles.append(titles[ifile])
                 scan_colors.append(colors[ifile])
@@ -446,10 +604,20 @@ for i in range(nBins):
     for ifile in range(len(scan_fileList)):
         rfile = scan_fileList[ifile].replace('OBS', _obs_bin)
         rfile = rfile.replace('BIN', obsName)
-        graphs.append(TGraph())
         fname = inputPath+rfile
+        if not tfile_is_good(fname):
+            print('Skipping missing scan file:', fname)
+            continue
         inF = TFile.Open(fname,"READ")
+        if not inF:
+            print('Skipping unreadable scan file:', fname)
+            continue
         tree = inF.Get("limit")
+        if not tree:
+            print('Skipping scan file without limit tree:', fname)
+            inF.Close()
+            continue
+        graph = TGraph()
 
         if tree.GetBranch('r_smH_'+_obsName[obsName]+'_'+str(_bin)):
             tree.GetBranch('r_smH_'+_obsName[obsName]+'_'+str(_bin)).SetTitle('r_smH_'+str(_bin)+'/F');
@@ -485,11 +653,8 @@ for i in range(nBins):
                 elif "kL" in obsName and _bin == 0:
                     field = "kappa_lambda"
 
-                elif is_vbf:
-                    field = f"r_VBFH_{_obsName[obsName]}_{vbf_physical_bin}"
-
-                elif is_total_minus_vbf:
-                    field = f"r_totalMinusVBF_{_obsName[obsName]}_{vbf_physical_bin}"
+                elif is_vbf_special:
+                    field = _obs_bin.replace(str(vbf_physical_bin), _obsName[obsName]+'_'+str(vbf_physical_bin), 1)
 
                 else:
                     if opt.ZZ and _bin >= base_nbins and zznorm_indices is not None:
@@ -499,8 +664,24 @@ for i in range(nBins):
                         field = f"r_smH_{_bin}"
 
                 if field is not None:
-                    graphs[ifile].SetPoint(ipoint, getattr(entry, field), yval)
+                    if not hasattr(entry, field):
+                        continue
+                    graph.SetPoint(ipoint, getattr(entry, field), yval)
                     ipoint += 1
+        inF.Close()
+        if graph.GetN() < 2:
+            print('Skipping scan with too few points:', fname)
+            continue
+        graphs.append(graph)
+        scan_titles[len(graphs)-1] = scan_titles[ifile]
+        scan_colors[len(graphs)-1] = scan_colors[ifile]
+
+    scan_titles = scan_titles[:len(graphs)]
+    scan_colors = scan_colors[:len(graphs)]
+    if len(graphs) == 0:
+        print('No usable scan files found for bin '+str(_bin)+'. Skipping plot.')
+        continue
+    scan_idx_max = min(scan_idx_max, len(graphs)-1)
 
     c=TCanvas("c", "c", 1000, 800)
     c.SetLeftMargin(0.14)
@@ -557,10 +738,8 @@ for i in range(nBins):
         elif _bin == 19: xtitle = "#sigma_{bin 4l 9}"
         elif _bin == 20: xtitle = "#sigma_{bin 2e2mu 10}"
         elif _bin == 21: xtitle = "#sigma_{bin 4l 10}"
-    elif is_vbf:
-        xtitle = "r_{VBF}"
-    elif is_total_minus_vbf:
-        xtitle = "r_{total-VBF}"
+    elif is_vbf_special:
+        xtitle = "#sigma_{"+vbf_plot_label+"} (fb)"
     elif 'kL' in obsName:
         xtitle = "#kappa_{#lambda}"
     elif obsName == 'mass4l' or obsName == 'mass4l_zzfloating':
@@ -638,9 +817,18 @@ for i in range(nBins):
     if is_vbf:
         poi = 'r_VBFH_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
         poi_fn = 'r_VBFH_'+str(vbf_physical_bin)
+    elif is_other_prod:
+        poi = 'r_otherProd_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
+        poi_fn = 'r_otherProd_'+str(vbf_physical_bin)
     elif is_total_minus_vbf:
         poi = 'r_totalMinusVBF_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
         poi_fn = 'r_totalMinusVBF_'+str(vbf_physical_bin)
+    elif is_ggh_extrap:
+        poi = 'r_VBFH_ggHExtrap_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
+        poi_fn = 'r_VBFH_ggHExtrap_'+str(vbf_physical_bin)
+    elif is_ggh_fixed:
+        poi = 'r_VBFH_ggHFixed_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
+        poi_fn = 'r_VBFH_ggHFixed_'+str(vbf_physical_bin)
     elif 'smH' in _obs_bin:
         poi = 'r_smH_'+_obsName[obsName]+'_'+str(i)
         poi_fn = 'r_smH_'+str(i)
@@ -649,11 +837,11 @@ for i in range(nBins):
         poi_fn = poi
     if 'kL' in obsName:
         fname = inputPath + "higgsCombine_"+obsName+".MultiDimFit.mH125.38.123456.root"
-        if plot.TFileIsGood(fname):
+        if tfile_is_good(fname):
             goodFile = TFile(fname)
         else:
-            print('File is not good')
-            break
+            print('Skipping missing expected kL scan:', fname)
+            continue
         limit = goodFile.Get('limit')
         kappa_lambda = []
         for entry in limit:
@@ -666,6 +854,9 @@ for i in range(nBins):
 
         fname = inputPath + "higgsCombine_pT4l_kL_grid.MultiDimFit.mH125.38.123456.root"
         obs_scan = BuildScan('scan', poi, [fname], 2, yvals, 7.)
+        if obs_scan is None:
+            print('Skipping expected kL 95% CL extraction for missing scan:', fname)
+            continue
         obs_2sig = obs_scan['val_2sig']
         print('------------------------------------------------------')
         print('EXPECTED 95% CL exclusion:', obs_2sig[0]+obs_2sig[1], obs_2sig[0]+obs_2sig[2])
@@ -674,16 +865,19 @@ for i in range(nBins):
         fname = inputPath + "higgsCombine_"+obsName+"_"+poi_fn+".MultiDimFit.mH125.38.123456.root"
         print('STAT+SYST')
         exp_scan = BuildScan('scan', poi, [fname], 2, yvals, 7.)
+        if exp_scan is None or exp_scan['val'] is None:
+            print('Skipping bin '+str(_bin)+' because expected stat+syst scan is missing or unusable:', fname)
+            continue
         exp_nom = exp_scan['val']
         # exp_2sig = exp_scan['val_2sig']
 
     if 'kL' in obsName:
         fname = inputPath + "higgsCombine_"+obsName+"_NoSys.MultiDimFit.mH125.38.123456.root"
-        if plot.TFileIsGood(fname):
+        if tfile_is_good(fname):
             goodFile = TFile(fname)
         else:
-            print('File is not good')
-            break
+            print('Skipping bin '+str(_bin)+' because expected kL stat-only scan is missing:', fname)
+            continue
         limit = goodFile.Get('limit')
         kappa_lambda = []
         for entry in limit:
@@ -696,20 +890,44 @@ for i in range(nBins):
         fname = inputPath + "higgsCombine_"+obsName+"_"+poi_fn+"_NoSys.MultiDimFit.mH125.38.123456.root"
         print('STAT-ONLY')
         exp_scan_stat = BuildScan('scan', poi, [fname], 2, yvals, 7.)
+        if exp_scan_stat is None or exp_scan_stat['val'] is None:
+            print('Skipping bin '+str(_bin)+' because expected stat-only scan is missing or unusable:', fname)
+            continue
         exp_nom_stat = exp_scan_stat['val']
         # exp_2sig_stat = exp_scan_stat['val_2sig']
 
     exp_up_sys = quadrature_subtract(exp_nom[1], exp_nom_stat[1])
     exp_do_sys = quadrature_subtract(exp_nom[2], exp_nom_stat[2])
 
+    if opt.UNBLIND and has_observed_scan:
+        if 'kL' in obsName:
+            observed_required_files = [
+                inputPath + "higgsCombine_"+obsName+".MultiDimFit.mH125.38.root",
+                inputPath + "higgsCombine_"+obsName+"_NoSys.MultiDimFit.mH125.38.root",
+            ]
+        else:
+            observed_required_files = [
+                inputPath + "higgsCombine_"+obsName+"_"+poi_fn+".MultiDimFit.mH125.38.root",
+                inputPath + "higgsCombine_"+obsName+"_"+poi_fn+"_NoSys.MultiDimFit.mH125.38.root",
+            ]
+        missing_observed_files = [fname for fname in observed_required_files if not tfile_is_good(fname)]
+        if missing_observed_files:
+            print('Skipping observed scan for bin '+str(_bin)+' because file(s) are missing:', ', '.join(missing_observed_files))
+            has_observed_scan = False
+
     if (opt.UNBLIND and has_observed_scan):
         if 'kL' in obsName:
             fname = inputPath + "higgsCombine_"+obsName+".MultiDimFit.mH125.38.root"
-            if plot.TFileIsGood(fname):
+            if tfile_is_good(fname):
                 goodFile = TFile(fname)
             else:
-                print('File is not good')
-                break
+                print('Skipping observed scan for missing file:', fname)
+                has_observed_scan = False
+                obs_nom = None
+                obs_nom_stat = None
+                obs_up_sys = None
+                obs_do_sys = None
+                continue
             limit = goodFile.Get('limit')
             kappa_lambda = []
             for entry in limit:
@@ -722,6 +940,10 @@ for i in range(nBins):
 
             fname = inputPath + "higgsCombine_pT4l_kL_grid.MultiDimFit.mH125.38.root"
             obs_scan = BuildScan('scan', poi, [fname], 2, yvals, 7.)
+            if obs_scan is None:
+                print('Skipping observed kL 95% CL extraction for missing scan:', fname)
+                has_observed_scan = False
+                continue
             obs_2sig = obs_scan['val_2sig']
             print('------------------------------------------------------')
             print('OBSERVED 95% CL exclusion:', obs_2sig[0]+obs_2sig[1], obs_2sig[0]+obs_2sig[2])
@@ -731,17 +953,22 @@ for i in range(nBins):
             print('STAT+SYST')
             print(fname)
             obs_scan = BuildScan('scan', poi, [fname], 2, yvals, 7.)
+            if obs_scan is None or obs_scan['val'] is None:
+                print('Skipping observed scan for bin '+str(_bin)+' because file is missing or unusable:', fname)
+                has_observed_scan = False
+                continue
             # print obs_scan
             obs_nom = obs_scan['val']
             obs_2sig = obs_scan['val_2sig']
 
         if 'kL' in obsName:
             fname = inputPath + "higgsCombine_"+obsName+"_NoSys.MultiDimFit.mH125.38.root"
-            if plot.TFileIsGood(fname):
+            if tfile_is_good(fname):
                 goodFile = TFile(fname)
             else:
-                print('File is not good')
-                break
+                print('Skipping observed scan for missing kL stat-only file:', fname)
+                has_observed_scan = False
+                continue
             limit = goodFile.Get('limit')
             kappa_lambda = []
             for entry in limit:
@@ -755,6 +982,10 @@ for i in range(nBins):
             fname = inputPath + "higgsCombine_"+obsName+"_"+poi_fn+"_NoSys.MultiDimFit.mH125.38.root"
             print('STAT-ONLY')
             obs_scan_stat = BuildScan('scan', poi, [fname], 2, yvals, 7.)
+            if obs_scan_stat is None or obs_scan_stat['val'] is None:
+                print('Skipping observed stat-only scan for bin '+str(_bin)+' because file is missing or unusable:', fname)
+                has_observed_scan = False
+                continue
             obs_nom_stat = obs_scan_stat['val']
             obs_2sig_stat = obs_scan_stat['val_2sig']
 
@@ -784,6 +1015,28 @@ for i in range(nBins):
             obs_up_sys *= xsec['SigmaBin'+str(i)]
             obs_do_sys *= xsec['SigmaBin'+str(i)]
 
+    if is_vbf_special:
+        exp_nom = list(exp_nom)
+        exp_nom_stat = list(exp_nom_stat)
+        exp_nom[0] *= vbf_component_xs
+        exp_nom[1] *= vbf_component_xs
+        exp_nom[2] *= vbf_component_xs
+        exp_nom_stat[1] *= vbf_component_xs
+        exp_nom_stat[2] *= vbf_component_xs
+        exp_up_sys *= vbf_component_xs
+        exp_do_sys *= vbf_component_xs
+
+        if opt.UNBLIND and has_observed_scan:
+            obs_nom = list(obs_nom)
+            obs_nom_stat = list(obs_nom_stat)
+            obs_nom[0] *= vbf_component_xs
+            obs_nom[1] *= vbf_component_xs
+            obs_nom[2] *= vbf_component_xs
+            obs_nom_stat[1] *= vbf_component_xs
+            obs_nom_stat[2] *= vbf_component_xs
+            obs_up_sys *= vbf_component_xs
+            obs_do_sys *= vbf_component_xs
+
     if(opt.UNBLIND and has_observed_scan):
         Text3 = TPaveText(0.15, 0.81,0.4,0.9,'brNDC')
     else:
@@ -791,9 +1044,9 @@ for i in range(nBins):
 
     plot_bin = _bin
     is_zz = False
-    if is_vbf or is_total_minus_vbf:
+    if is_vbf_special:
         plot_bin = vbf_physical_bin
-    if opt.ZZ and not (is_vbf or is_total_minus_vbf):
+    if opt.ZZ and not is_vbf_special:
         base_nbins = raw_nBins
         if _bin >= base_nbins:
             plot_bin = _bin - base_nbins
@@ -821,10 +1074,8 @@ for i in range(nBins):
     else:
         if is_zz:
             exp_fit = 'Exp. ZZ_{norm, %d} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (plot_bin, exp_nom[0], exp_nom_stat[1], abs(exp_nom_stat[2]), exp_up_sys, exp_do_sys)
-        elif is_vbf:
-            exp_fit = 'Exp. r_{VBF} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (exp_nom[0], exp_nom_stat[1], abs(exp_nom_stat[2]), exp_up_sys, exp_do_sys)
-        elif is_total_minus_vbf:
-            exp_fit = 'Exp. r_{total-VBF} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (exp_nom[0], exp_nom_stat[1], abs(exp_nom_stat[2]), exp_up_sys, exp_do_sys)
+        elif is_vbf_special:
+            exp_fit = 'Exp. #sigma_{%s} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (vbf_plot_label, exp_nom[0], exp_nom_stat[1], abs(exp_nom_stat[2]), exp_up_sys, exp_do_sys)
         else:
             exp_fit = 'Exp. #sigma_{%d} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (plot_bin, exp_nom[0], exp_nom_stat[1], abs(exp_nom_stat[2]), exp_up_sys, exp_do_sys)
             
@@ -851,10 +1102,8 @@ for i in range(nBins):
             if _bin == 7: obs_fit = 'Obs. ZZ_{norm}^{2e2mu} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (obs_nom[0], obs_nom_stat[1], abs(obs_nom_stat[2]), obs_up_sys, obs_do_sys)
         elif is_zz:
             obs_fit = 'Obs. ZZ_{norm, %d} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (plot_bin, obs_nom[0], obs_nom_stat[1], abs(obs_nom_stat[2]), obs_up_sys, obs_do_sys)
-        elif is_vbf:
-            obs_fit = 'Obs. r_{VBF} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (obs_nom[0], obs_nom_stat[1], abs(obs_nom_stat[2]), obs_up_sys, obs_do_sys)
-        elif is_total_minus_vbf:
-            obs_fit = 'Obs. r_{total-VBF} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (obs_nom[0], obs_nom_stat[1], abs(obs_nom_stat[2]), obs_up_sys, obs_do_sys)
+        elif is_vbf_special:
+            obs_fit = 'Obs. #sigma_{%s} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (vbf_plot_label, obs_nom[0], obs_nom_stat[1], abs(obs_nom_stat[2]), obs_up_sys, obs_do_sys)
         else:
             obs_fit = 'Obs. #sigma_{%d} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (plot_bin, obs_nom[0], obs_nom_stat[1], abs(obs_nom_stat[2]), obs_up_sys, obs_do_sys)
         Text4.SetTextAlign(12);
@@ -904,10 +1153,10 @@ for i in range(nBins):
     # Map plotted bin back to the physical observable bin
     plot_bin = _bin
     is_zz = False
-    if is_vbf or is_total_minus_vbf:
+    if is_vbf_special:
         plot_bin = vbf_physical_bin
 
-    if opt.ZZ and not (is_vbf or is_total_minus_vbf):
+    if opt.ZZ and not is_vbf_special:
         base_nbins = raw_nBins
         if plot_bin >= base_nbins:
             is_zz = True
@@ -1064,12 +1313,9 @@ for i in range(nBins):
                 resultsXS_data_v4['SM_125_'+obsName+'_4l_genbin9'] = {"uncerDn": -1.0*abs(obs_nom[2]), "uncerUp": obs_nom[1], "central": obs_nom[0]}
                 resultsXS_data_v4['SM_125_'+obsName+'_4l_genbin5_statOnly'] = {"uncerDn": -1.0*abs(obs_nom_stat[2]), "uncerUp": obs_nom_stat[1], "central": obs_nom[0]}
         elif not obsName.startswith("mass4l"):
-            if is_vbf:
-                resultsXS_data['SM_125_'+obsName+'_VBFH_genbin'+str(vbf_physical_bin)] = {"uncerDn": -1.0*abs(obs_nom[2]), "uncerUp": obs_nom[1], "central": obs_nom[0]}
-                resultsXS_data['SM_125_'+obsName+'_VBFH_genbin'+str(vbf_physical_bin)+'_statOnly'] = {"uncerDn": -1.0*abs(obs_nom_stat[2]), "uncerUp": obs_nom_stat[1], "central": obs_nom[0]}
-            elif is_total_minus_vbf:
-                resultsXS_data['SM_125_'+obsName+'_totalMinusVBF_genbin'+str(vbf_physical_bin)] = {"uncerDn": -1.0*abs(obs_nom[2]), "uncerUp": obs_nom[1], "central": obs_nom[0]}
-                resultsXS_data['SM_125_'+obsName+'_totalMinusVBF_genbin'+str(vbf_physical_bin)+'_statOnly'] = {"uncerDn": -1.0*abs(obs_nom_stat[2]), "uncerUp": obs_nom_stat[1], "central": obs_nom[0]}
+            if is_vbf_special:
+                resultsXS_data['SM_125_'+obsName+'_'+vbf_result_label+'_genbin'+str(vbf_physical_bin)] = {"uncerDn": -1.0*abs(obs_nom[2]), "uncerUp": obs_nom[1], "central": obs_nom[0]}
+                resultsXS_data['SM_125_'+obsName+'_'+vbf_result_label+'_genbin'+str(vbf_physical_bin)+'_statOnly'] = {"uncerDn": -1.0*abs(obs_nom_stat[2]), "uncerUp": obs_nom_stat[1], "central": obs_nom[0]}
             else:
                 resultsXS_data['SM_125_'+obsName+'_genbin'+str(i)] = {"uncerDn": -1.0*abs(obs_nom[2]), "uncerUp": obs_nom[1], "central": obs_nom[0]}
                 resultsXS_data['SM_125_'+obsName+'_genbin'+str(i)+'_statOnly'] = {"uncerDn": -1.0*abs(obs_nom_stat[2]), "uncerUp": obs_nom_stat[1], "central": obs_nom[0]}
@@ -1204,12 +1450,9 @@ for i in range(nBins):
             resultsXS_asimov_v4['SM_125_'+obsName+'_4l_genbin9'] = {"uncerDn": -1.0*abs(exp_nom[2]), "uncerUp": exp_nom[1], "central": exp_nom[0]}
             resultsXS_asimov_v4['SM_125_'+obsName+'_4l_genbin5_statOnly'] = {"uncerDn": -1.0*abs(exp_nom_stat[2]), "uncerUp": exp_nom_stat[1], "central": exp_nom[0]}
     else:
-        if is_vbf:
-            resultsXS_asimov['SM_125_'+obsName+'_VBFH_genbin'+str(vbf_physical_bin)] = {"uncerDn": -1.0*abs(exp_nom[2]), "uncerUp": exp_nom[1], "central": exp_nom[0]}
-            resultsXS_asimov['SM_125_'+obsName+'_VBFH_genbin'+str(vbf_physical_bin)+'_statOnly'] = {"uncerDn": -1.0*abs(exp_nom_stat[2]), "uncerUp": exp_nom_stat[1], "central": exp_nom[0]}
-        elif is_total_minus_vbf:
-            resultsXS_asimov['SM_125_'+obsName+'_totalMinusVBF_genbin'+str(vbf_physical_bin)] = {"uncerDn": -1.0*abs(exp_nom[2]), "uncerUp": exp_nom[1], "central": exp_nom[0]}
-            resultsXS_asimov['SM_125_'+obsName+'_totalMinusVBF_genbin'+str(vbf_physical_bin)+'_statOnly'] = {"uncerDn": -1.0*abs(exp_nom_stat[2]), "uncerUp": exp_nom_stat[1], "central": exp_nom[0]}
+        if is_vbf_special:
+            resultsXS_asimov['SM_125_'+obsName+'_'+vbf_result_label+'_genbin'+str(vbf_physical_bin)] = {"uncerDn": -1.0*abs(exp_nom[2]), "uncerUp": exp_nom[1], "central": exp_nom[0]}
+            resultsXS_asimov['SM_125_'+obsName+'_'+vbf_result_label+'_genbin'+str(vbf_physical_bin)+'_statOnly'] = {"uncerDn": -1.0*abs(exp_nom_stat[2]), "uncerUp": exp_nom_stat[1], "central": exp_nom[0]}
         else:
             resultsXS_asimov['SM_125_'+obsName+'_genbin'+str(i)] = {"uncerDn": -1.0*abs(exp_nom[2]), "uncerUp": exp_nom[1], "central": exp_nom[0]}
             resultsXS_asimov['SM_125_'+obsName+'_genbin'+str(i)+'_statOnly'] = {"uncerDn": -1.0*abs(exp_nom_stat[2]), "uncerUp": exp_nom_stat[1], "central": exp_nom[0]}
@@ -1227,6 +1470,9 @@ for i in range(nBins):
     c.SaveAs(os.path.join(outdir,
             year + "_lhscan_compare_" + obsName + "_" + poi + ".png"))
 
+
+if opt.DO_VBF:
+    plot_vbf_2d_scans(obsName, raw_nBins, obs_bins, label, label_2nd, year, inputPath)
 
 if v4_flag:
     if opt.UNBLIND:

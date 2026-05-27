@@ -28,6 +28,7 @@ def parseOptions():
     parser.add_option('',   '--year',  dest='YEAR',  type='string',default='',   help='Year -> 2016 or 2017 or 2018 or Full')
     parser.add_option('',   '--unblind', action='store_true', dest='UNBLIND', default=False, help='Use real data')
     parser.add_option('',   '--fitOnly', action='store_true', dest='FITONLY', default=False, help='Run only fit')
+    parser.add_option('',   '--doVBF', action='store_true', dest='DO_VBF', default=False, help='Float and plot VBF independently in each absdetajj vs mjj bin')
     # store options and arguments as global variables
     global opt, args
     (opt, args) = parser.parse_args()
@@ -62,6 +63,7 @@ def pipeline():
     year    = str(opt.YEAR)
     unblind = opt.UNBLIND
     fitOnly = opt.FITONLY
+    doVBF = opt.DO_VBF
 
     print('============================================================')
     print('============================================================')
@@ -92,6 +94,8 @@ def pipeline():
 
     if fitOnly: os.chdir('./fit')
     cmd = 'python RunFiducialXS.py --obsName "'+obsName+'" --obsBins "'+obsBins+'" --year "'+year+'"'
+    if doVBF:
+        cmd += ' --doVBF'
     output = processCmd(cmd)
     print output
 
@@ -103,6 +107,8 @@ def pipeline():
     os.chdir('../LHScans')
 
     cmd = 'python plot_LLScan.py --obsName "'+obsName+'" --obsBins "'+obsBins+'" --year "'+year+'"'
+    if doVBF:
+        cmd += ' --doVBF'
     output = processCmd(cmd)
     print output
 

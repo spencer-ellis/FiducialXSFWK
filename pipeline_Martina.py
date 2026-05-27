@@ -24,6 +24,8 @@ def parseOptions():
                       help='Use real data (unblind)')
     parser.add_option('', '--fitOnly', action='store_true', dest='FITONLY', default=False,
                       help='Run only the fit step')
+    parser.add_option('', '--doVBF', action='store_true', dest='DO_VBF', default=False,
+                      help='Float and plot VBF independently in each absdetajj vs mjj bin')
 
     (opt, args) = parser.parse_args()
 
@@ -62,6 +64,7 @@ def pipeline():
     year = opt.YEAR
     unblind = opt.UNBLIND
     fitOnly = opt.FITONLY
+    doVBF = opt.DO_VBF
 
     print('============================================================')
     print('=== RUNNING THE WORKFLOW FOR THE FOLLOWING CONFIGURATION ===')
@@ -83,6 +86,8 @@ def pipeline():
     processCmd(f'python3 -u addConstrainedModel.py --obsName "{obsName}" --year "{year}"')
 
     runFidCmd = f'python3 -u RunFiducialXS.py --obsName "{obsName}" --obsBins "{obsBins}" --year "{year}"'
+    if doVBF:
+        runFidCmd += ' --doVBF'
     if unblind:
         runFidCmd += ' --unblind'
     processCmd(runFidCmd)
@@ -92,6 +97,8 @@ def pipeline():
     print('=== PLOTTING ===')
     safe_chdir('../LHScans')
     llScanCmd = f'python3 -u plot_LLScan.py --obsName "{obsName}" --obsBins "{obsBins}" --year "{year}"'
+    if doVBF:
+        llScanCmd += ' --doVBF'
     if unblind:
         llScanCmd += ' --unblind'
     processCmd(llScanCmd)
