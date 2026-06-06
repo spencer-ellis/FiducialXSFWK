@@ -43,6 +43,50 @@ def get_merged_bins_for_zz(obsName_base, zz_bin_index):
 def format_double_diff_bin_line(obs_bin, label, label_2nd):
     return f"{obs_bin[0]} < {label} < {obs_bin[1]}, {obs_bin[2]} < {label_2nd} < {obs_bin[3]}"
 
+def format_vbf_sigma_subscript(plot_label, physical_bin):
+    return '%s, bin %d' %(plot_label, physical_bin)
+
+def save_scan_canvas(canvas, year, obsName, poi, option_name=None):
+    outdir = os.path.join(path['plots_path'], "SCANS", obsName)
+    os.makedirs(outdir, exist_ok=True)
+    option_suffix = "_"+option_name if option_name else ""
+    canvas.Update()
+    canvas.SaveAs(os.path.join(
+        outdir,
+        year+"_lhscan_compare_"+obsName+option_suffix+"_"+poi+".png",
+    ))
+
+def plot_fixed_vbf_result(obsName, poi, sigma_subscript, central, year, lumi, option_name):
+    outdir = os.path.join(path['plots_path'], "SCANS", obsName)
+    os.makedirs(outdir, exist_ok=True)
+
+    canvas = TCanvas("c_fixed_"+poi, "c_fixed_"+poi, 1000, 800)
+    canvas.SetLeftMargin(0.14)
+    canvas.SetRightMargin(0.08)
+    xmax = max(2.0 * central, 1.0)
+    frame = canvas.DrawFrame(0.0, 0.0, xmax, 8.0)
+    frame.GetXaxis().SetTitle("#sigma_{"+sigma_subscript+"} (fb) [--"+option_name+"]")
+    frame.GetYaxis().SetTitle("-2#Delta ln L")
+    frame.GetYaxis().SetTitleOffset(0.9)
+
+    fixed_line = TLine(central, 0.0, central, 8.0)
+    fixed_line.SetLineColor(kBlack)
+    fixed_line.SetLineWidth(3)
+    fixed_line.Draw("SAME")
+
+    text = TLatex()
+    text.SetNDC()
+    text.SetTextFont(42)
+    text.SetTextSize(0.04)
+    text.DrawLatex(0.16, 0.88, "Fixed to SM")
+    text.DrawLatex(0.16, 0.82, "#sigma_{"+sigma_subscript+"} = %.3f fb" %central)
+    text.DrawLatex(0.62, 0.92, lumi+" fb^{-1} (13.6 TeV)")
+
+    canvas.SaveAs(os.path.join(
+        outdir,
+        year+"_lhscan_compare_"+obsName+"_"+option_name+"_"+poi+".png",
+    ))
+
 NAMECOUNTER = 0
 
 grootargs = []
@@ -263,15 +307,53 @@ def plot_vbf_2d_scans(obsName, raw_nBins, obs_bins, label, label_2nd, year, inpu
             ))
 
 def get_vbf_scan_specs(raw_nBins):
-    vbf_scan_kinds = ['vbf', 'other_prod', 'total_minus_vbf', 'ggh_extrap', 'ggh_fixed']
-    return [
-        {
-            'kind': kind,
+    option_names = {
+        'vbf': 'doVBFH',
+        'other_prod': 'doOtherProd',
+        'vbf_fix_vbf': 'doVBFfix',
+        'vbf_fix_other_prod': 'doVBFfix',
+        'vbfh_other_prod_vbf': 'doVBFHotherProd',
+        'vbfh_other_prod_other_prod': 'doVBFHotherProd',
+        'total_minus_vbf': 'doTotalMinusVBF',
+        'total_minus_vbf_vbf': 'doTotalMinusVBF',
+        'ggh_extrap': 'doGGHExtrap',
+        'ggh_fixed': 'doGGHFixed',
+        'all_extrap_total_minus_vbf': 'doAllExtrap',
+        'all_extrap_vbf': 'doAllExtrap',
+    }
+    specs = []
+    for physical_bin in range(raw_nBins):
+        for kind in [
+            'vbf',
+            'other_prod',
+            'vbf_fix_vbf',
+            'vbf_fix_other_prod',
+            'vbfh_other_prod_vbf',
+            'vbfh_other_prod_other_prod',
+            'ggh_extrap',
+            'ggh_fixed',
+        ]:
+            specs.append({
+                'kind': kind,
+                'physical_bin': physical_bin,
+                'fixed_to_sm': kind in ['vbf_fix_vbf', 'vbf_fix_other_prod'] and physical_bin < raw_nBins-1,
+                'option_name': option_names[kind],
+            })
+        total_minus_kind = 'total_minus_vbf' if physical_bin < raw_nBins-1 else 'total_minus_vbf_vbf'
+        specs.append({
+            'kind': total_minus_kind,
             'physical_bin': physical_bin,
-        }
-        for physical_bin in range(raw_nBins)
-        for kind in vbf_scan_kinds
-    ]
+            'fixed_to_sm': False,
+            'option_name': option_names[total_minus_kind],
+        })
+        all_extrap_kind = 'all_extrap_total_minus_vbf' if physical_bin < raw_nBins-1 else 'all_extrap_vbf'
+        specs.append({
+            'kind': all_extrap_kind,
+            'physical_bin': physical_bin,
+            'fixed_to_sm': False,
+            'option_name': option_names[all_extrap_kind],
+        })
+    return specs
 
 yvals = [1., 3.84]
 
@@ -499,42 +581,115 @@ for i in range(nBins):
     _bin = i
     vbf_special_scan = vbf_special_scan_specs.get(_bin)
     vbf_scan_kind = vbf_special_scan['kind'] if vbf_special_scan else None
+    vbf_option_name = vbf_special_scan.get('option_name') if vbf_special_scan else None
+    is_fixed_to_sm = vbf_special_scan.get('fixed_to_sm', False) if vbf_special_scan else False
     is_vbf = vbf_scan_kind == 'vbf'
     is_other_prod = vbf_scan_kind == 'other_prod'
+    is_vbf_fix_vbf = vbf_scan_kind == 'vbf_fix_vbf'
+    is_vbf_fix_other_prod = vbf_scan_kind == 'vbf_fix_other_prod'
+    is_vbfh_other_prod_vbf = vbf_scan_kind == 'vbfh_other_prod_vbf'
+    is_vbfh_other_prod_other_prod = vbf_scan_kind == 'vbfh_other_prod_other_prod'
     is_total_minus_vbf = vbf_scan_kind == 'total_minus_vbf'
+    is_total_minus_vbf_vbf = vbf_scan_kind == 'total_minus_vbf_vbf'
     is_ggh_extrap = vbf_scan_kind == 'ggh_extrap'
     is_ggh_fixed = vbf_scan_kind == 'ggh_fixed'
-    is_vbf_special = is_vbf or is_other_prod or is_total_minus_vbf or is_ggh_extrap or is_ggh_fixed
+    is_all_extrap_total_minus_vbf = vbf_scan_kind == 'all_extrap_total_minus_vbf'
+    is_all_extrap_vbf = vbf_scan_kind == 'all_extrap_vbf'
+    is_vbf_special = any([
+        is_vbf,
+        is_other_prod,
+        is_vbf_fix_vbf,
+        is_vbf_fix_other_prod,
+        is_vbfh_other_prod_vbf,
+        is_vbfh_other_prod_other_prod,
+        is_total_minus_vbf,
+        is_total_minus_vbf_vbf,
+        is_ggh_extrap,
+        is_ggh_fixed,
+        is_all_extrap_total_minus_vbf,
+        is_all_extrap_vbf,
+    ])
     vbf_physical_bin = vbf_special_scan['physical_bin'] if vbf_special_scan else None
+    vbf_poi_full = None
     vbf_component_xs = None
     vbf_result_label = None
     vbf_plot_label = None
+    vbf_sigma_subscript = None
 
     if is_vbf:
         _obs_bin = 'r_VBFH_'+str(vbf_physical_bin)
+        vbf_poi_full = 'r_VBFH_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
         vbf_component_xs = fidXS_components['VBFH'][vbf_physical_bin]
         vbf_result_label = 'VBFH'
         vbf_plot_label = 'VBF'
     elif is_other_prod:
         _obs_bin = 'r_otherProd_'+str(vbf_physical_bin)
+        vbf_poi_full = 'r_otherProd_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
         vbf_component_xs = xsec['SigmaBin'+str(vbf_physical_bin)] - fidXS_components['VBFH'][vbf_physical_bin]
         vbf_result_label = 'otherProd'
         vbf_plot_label = 'other prod.'
+    elif is_vbf_fix_vbf:
+        _obs_bin = 'r_VBFfix_VBFH_'+str(vbf_physical_bin)
+        vbf_poi_full = 'r_VBFH_fix_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
+        vbf_component_xs = fidXS_components['VBFH'][vbf_physical_bin]
+        vbf_result_label = 'VBFH_fix'
+        vbf_plot_label = 'VBF, fixed bins 0-2'
+    elif is_vbf_fix_other_prod:
+        _obs_bin = 'r_VBFfix_otherProd_'+str(vbf_physical_bin)
+        vbf_poi_full = 'r_otherProd_fix_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
+        vbf_component_xs = xsec['SigmaBin'+str(vbf_physical_bin)] - fidXS_components['VBFH'][vbf_physical_bin]
+        vbf_result_label = 'otherProd_fix'
+        vbf_plot_label = 'other prod., fixed bins 0-2'
+    elif is_vbfh_other_prod_vbf:
+        _obs_bin = 'r_VBFHotherProd_VBFH_'+str(vbf_physical_bin)
+        vbf_poi_full = 'r_VBFH_otherProd_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
+        vbf_component_xs = fidXS_components['VBFH'][vbf_physical_bin]
+        vbf_result_label = 'VBFH_otherProd'
+        vbf_plot_label = 'VBF, simultaneous'
+    elif is_vbfh_other_prod_other_prod:
+        _obs_bin = 'r_VBFHotherProd_otherProd_'+str(vbf_physical_bin)
+        vbf_poi_full = 'r_otherProd_otherProd_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
+        vbf_component_xs = xsec['SigmaBin'+str(vbf_physical_bin)] - fidXS_components['VBFH'][vbf_physical_bin]
+        vbf_result_label = 'otherProd_otherProd'
+        vbf_plot_label = 'other prod., simultaneous'
     elif is_total_minus_vbf:
         _obs_bin = 'r_totalMinusVBF_'+str(vbf_physical_bin)
+        vbf_poi_full = 'r_totalMinusVBF_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
         vbf_component_xs = xsec['SigmaBin'+str(vbf_physical_bin)] - fidXS_components['VBFH'][vbf_physical_bin]
         vbf_result_label = 'totalMinusVBF'
         vbf_plot_label = 'total-VBF'
+    elif is_total_minus_vbf_vbf:
+        _obs_bin = 'r_totalMinusVBF_VBFH_'+str(vbf_physical_bin)
+        vbf_poi_full = 'r_VBFH_totalMinusVBF_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
+        vbf_component_xs = fidXS_components['VBFH'][vbf_physical_bin]
+        vbf_result_label = 'VBFH_totalMinusVBF'
+        vbf_plot_label = 'VBF, total-VBF fixed'
     elif is_ggh_extrap:
         _obs_bin = 'r_VBFH_ggHExtrap_'+str(vbf_physical_bin)
+        vbf_poi_full = 'r_VBFH_ggHExtrap_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
         vbf_component_xs = fidXS_components['VBFH'][vbf_physical_bin]
         vbf_result_label = 'VBFH_ggHExtrap'
         vbf_plot_label = 'VBF, ggH extrap.'
     elif is_ggh_fixed:
         _obs_bin = 'r_VBFH_ggHFixed_'+str(vbf_physical_bin)
+        vbf_poi_full = 'r_VBFH_ggHFixed_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
         vbf_component_xs = fidXS_components['VBFH'][vbf_physical_bin]
         vbf_result_label = 'VBFH_ggHFixed'
         vbf_plot_label = 'VBF, ggH fixed'
+    elif is_all_extrap_total_minus_vbf:
+        _obs_bin = 'r_allExtrap_totalMinusVBF_'+str(vbf_physical_bin)
+        vbf_poi_full = 'r_totalMinusVBF_allExtrap_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
+        vbf_component_xs = xsec['SigmaBin'+str(vbf_physical_bin)] - fidXS_components['VBFH'][vbf_physical_bin]
+        vbf_result_label = 'totalMinusVBF_allExtrap'
+        vbf_plot_label = 'total-VBF, all extrap.'
+    elif is_all_extrap_vbf:
+        _obs_bin = 'r_allExtrap_VBFH_'+str(vbf_physical_bin)
+        vbf_poi_full = 'r_VBFH_allExtrap_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
+        vbf_component_xs = fidXS_components['VBFH'][vbf_physical_bin]
+        vbf_result_label = 'VBFH_allExtrap'
+        vbf_plot_label = 'VBF, all extrap.'
+    if is_vbf_special:
+        vbf_sigma_subscript = format_vbf_sigma_subscript(vbf_plot_label, vbf_physical_bin)
     elif opt.ZZ and zznorm_indices is not None:
         if _bin < raw_nBins:
             _obs_bin = _poi+str(i)
@@ -570,6 +725,24 @@ for i in range(nBins):
     if 'kL' in obsName:
             _obs_bin = 'kappa_lambda'
 
+    if is_fixed_to_sm:
+        fixed_result = {"uncerDn": 0.0, "uncerUp": 0.0, "central": vbf_component_xs}
+        result_key = 'SM_125_'+obsName+'_'+vbf_result_label+'_genbin'+str(vbf_physical_bin)
+        resultsXS_asimov[result_key] = fixed_result.copy()
+        resultsXS_asimov[result_key+'_statOnly'] = fixed_result.copy()
+        if opt.UNBLIND:
+            resultsXS_data[result_key] = fixed_result.copy()
+            resultsXS_data[result_key+'_statOnly'] = fixed_result.copy()
+        plot_fixed_vbf_result(
+            obsName,
+            vbf_poi_full,
+            vbf_sigma_subscript,
+            vbf_component_xs,
+            year,
+            _lumi,
+            vbf_option_name,
+        )
+        continue
 
     graphs = []
     grapherrs = []
@@ -654,7 +827,7 @@ for i in range(nBins):
                     field = "kappa_lambda"
 
                 elif is_vbf_special:
-                    field = _obs_bin.replace(str(vbf_physical_bin), _obsName[obsName]+'_'+str(vbf_physical_bin), 1)
+                    field = vbf_poi_full
 
                 else:
                     if opt.ZZ and _bin >= base_nbins and zznorm_indices is not None:
@@ -739,7 +912,7 @@ for i in range(nBins):
         elif _bin == 20: xtitle = "#sigma_{bin 2e2mu 10}"
         elif _bin == 21: xtitle = "#sigma_{bin 4l 10}"
     elif is_vbf_special:
-        xtitle = "#sigma_{"+vbf_plot_label+"} (fb)"
+        xtitle = "#sigma_{"+vbf_sigma_subscript+"} (fb) [--"+vbf_option_name+"]"
     elif 'kL' in obsName:
         xtitle = "#kappa_{#lambda}"
     elif obsName == 'mass4l' or obsName == 'mass4l_zzfloating':
@@ -814,21 +987,9 @@ for i in range(nBins):
 
     leg.Draw("SAME")
 
-    if is_vbf:
-        poi = 'r_VBFH_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
-        poi_fn = 'r_VBFH_'+str(vbf_physical_bin)
-    elif is_other_prod:
-        poi = 'r_otherProd_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
-        poi_fn = 'r_otherProd_'+str(vbf_physical_bin)
-    elif is_total_minus_vbf:
-        poi = 'r_totalMinusVBF_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
-        poi_fn = 'r_totalMinusVBF_'+str(vbf_physical_bin)
-    elif is_ggh_extrap:
-        poi = 'r_VBFH_ggHExtrap_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
-        poi_fn = 'r_VBFH_ggHExtrap_'+str(vbf_physical_bin)
-    elif is_ggh_fixed:
-        poi = 'r_VBFH_ggHFixed_'+_obsName[obsName]+'_'+str(vbf_physical_bin)
-        poi_fn = 'r_VBFH_ggHFixed_'+str(vbf_physical_bin)
+    if is_vbf_special:
+        poi = vbf_poi_full
+        poi_fn = _obs_bin
     elif 'smH' in _obs_bin:
         poi = 'r_smH_'+_obsName[obsName]+'_'+str(i)
         poi_fn = 'r_smH_'+str(i)
@@ -867,6 +1028,8 @@ for i in range(nBins):
         exp_scan = BuildScan('scan', poi, [fname], 2, yvals, 7.)
         if exp_scan is None or exp_scan['val'] is None:
             print('Skipping bin '+str(_bin)+' because expected stat+syst scan is missing or unusable:', fname)
+            if is_vbf_special:
+                save_scan_canvas(c, year, obsName, poi, vbf_option_name)
             continue
         exp_nom = exp_scan['val']
         # exp_2sig = exp_scan['val_2sig']
@@ -892,6 +1055,8 @@ for i in range(nBins):
         exp_scan_stat = BuildScan('scan', poi, [fname], 2, yvals, 7.)
         if exp_scan_stat is None or exp_scan_stat['val'] is None:
             print('Skipping bin '+str(_bin)+' because expected stat-only scan is missing or unusable:', fname)
+            if is_vbf_special:
+                save_scan_canvas(c, year, obsName, poi, vbf_option_name)
             continue
         exp_nom_stat = exp_scan_stat['val']
         # exp_2sig_stat = exp_scan_stat['val_2sig']
@@ -1075,7 +1240,7 @@ for i in range(nBins):
         if is_zz:
             exp_fit = 'Exp. ZZ_{norm, %d} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (plot_bin, exp_nom[0], exp_nom_stat[1], abs(exp_nom_stat[2]), exp_up_sys, exp_do_sys)
         elif is_vbf_special:
-            exp_fit = 'Exp. #sigma_{%s} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (vbf_plot_label, exp_nom[0], exp_nom_stat[1], abs(exp_nom_stat[2]), exp_up_sys, exp_do_sys)
+            exp_fit = 'Exp. #sigma_{%s} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (vbf_sigma_subscript, exp_nom[0], exp_nom_stat[1], abs(exp_nom_stat[2]), exp_up_sys, exp_do_sys)
         else:
             exp_fit = 'Exp. #sigma_{%d} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (plot_bin, exp_nom[0], exp_nom_stat[1], abs(exp_nom_stat[2]), exp_up_sys, exp_do_sys)
             
@@ -1103,7 +1268,7 @@ for i in range(nBins):
         elif is_zz:
             obs_fit = 'Obs. ZZ_{norm, %d} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (plot_bin, obs_nom[0], obs_nom_stat[1], abs(obs_nom_stat[2]), obs_up_sys, obs_do_sys)
         elif is_vbf_special:
-            obs_fit = 'Obs. #sigma_{%s} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (vbf_plot_label, obs_nom[0], obs_nom_stat[1], abs(obs_nom_stat[2]), obs_up_sys, obs_do_sys)
+            obs_fit = 'Obs. #sigma_{%s} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (vbf_sigma_subscript, obs_nom[0], obs_nom_stat[1], abs(obs_nom_stat[2]), obs_up_sys, obs_do_sys)
         else:
             obs_fit = 'Obs. #sigma_{%d} = %.2f^{#plus %.2f}_{#minus %.2f} (stat)^{#plus %.2f}_{#minus %.2f} (syst)' % (plot_bin, obs_nom[0], obs_nom_stat[1], abs(obs_nom_stat[2]), obs_up_sys, obs_do_sys)
         Text4.SetTextAlign(12);
@@ -1161,6 +1326,8 @@ for i in range(nBins):
         if plot_bin >= base_nbins:
             is_zz = True
             plot_bin -= base_nbins
+
+    latex2.SetTextAlign(22)
 
     if 'jet' in obsName and not doubleDiff:
         latex2.DrawLatex(0.45, 0.65, f"{plot_bin} jet(s)")
@@ -1239,6 +1406,7 @@ for i in range(nBins):
             if line2 is not None:
                 latex2.DrawLatex(x, 0.60, line2)
 
+    latex2.SetTextAlign(31)
     latex2.DrawLatex(0.995,0.21, "#scale[0.7]{#color[12]{68% CL}}")
     latex2.DrawLatex(0.995,0.49, "#scale[0.7]{#color[12]{95% CL}}")
 
@@ -1464,11 +1632,7 @@ for i in range(nBins):
     #c.SaveAs("plots/lhscan_compare_"+obsName+"_"+poi+".pdf")
     #c.SaveAs("plots/"+year+"_lhscan_compare_"+obsName+"_"+poi+".png")
 
-    outdir = os.path.join(path['plots_path'], "SCANS", obsName)
-    os.makedirs(outdir, exist_ok=True)
-
-    c.SaveAs(os.path.join(outdir,
-            year + "_lhscan_compare_" + obsName + "_" + poi + ".png"))
+    save_scan_canvas(c, year, obsName, poi, vbf_option_name if is_vbf_special else None)
 
 
 if opt.DO_VBF:

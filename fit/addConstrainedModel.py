@@ -107,6 +107,8 @@ if opt.INTER:
 else:
     file_path = os.path.join(path['eos_path'], "inputs", f"inputs_sig_{obsName}_{opt.YEAR}.py")
 
+print('Loading inputs from: '+file_path)
+
 _temp = load_module_from_path(file_path)
 input_payload = get_public_module_payload(_temp)
 

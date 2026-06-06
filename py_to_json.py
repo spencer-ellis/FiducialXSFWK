@@ -24,7 +24,21 @@ JSONS_DIR = os.path.join(SCRIPT_DIR, "jsons")
 #SPECIAL_OBS = {"massZ1","massZ2","costhetaZ1","costhetaZ2","costhetastar","phi","phi1"}
 SPECIAL_OBS = {}
 
-UNBLIND = False
+UNBLIND = True
+
+JET_DISPLAY_WIDTH_VARS = {
+    "pTj1",
+    "pTj2",
+    "mjj",
+    "absdetajj",
+    "dphijj",
+    "pTHj",
+    "mHj",
+    "pTHjj",
+    "TBjmax",
+    "TCjmax",
+}
+JET_FIRST_BIN_FRACTION = 1.0 / 9.0
 
 
 def get_options():
@@ -73,6 +87,22 @@ def get_binning_variable_name(variable_name):
         return f"{left} vs {right}"
 
     return base_variable
+
+
+def get_base_variable_name(variable_name):
+    if variable_name.endswith("_zzfloating"):
+        return variable_name[: -len("_zzfloating")]
+    return variable_name
+
+
+def set_jet_display_xlim(variable_name, bins, x_lim):
+    if get_base_variable_name(variable_name) not in JET_DISPLAY_WIDTH_VARS:
+        return x_lim
+    first_bin_high = float(bins[1])
+    x_high = float(x_lim[1])
+    x_low = (first_bin_high - JET_FIRST_BIN_FRACTION * x_high) / (1.0 - JET_FIRST_BIN_FRACTION)
+    return [x_low, x_high]
+
 
 def load_results(file_path):
     # Dynamically import the Python file to get the 'resultsXS' dictionary
@@ -460,6 +490,7 @@ def parse_results(channel, variable_name, year):
         else:
             x_lim = [-1000, 1000]
 
+        x_lim = set_jet_display_xlim(variable_name, bins, x_lim)
         first_bin_center =  x_lim[0] + (bins[1] - x_lim[0])/2
         last_bin_center = bins[-2] + (x_lim[1] - bins[-2])/2
 

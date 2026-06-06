@@ -3,6 +3,7 @@ import binning
 import latex_names as tex
 import sys, os
 import optparse
+import subprocess
 from itertools import product
 from scipy.stats import chi2
 import importlib.util
@@ -22,6 +23,7 @@ def parseOptions():
     parser.add_option('',   '--theoryMass',dest='THEORY_MASS',    type='string',default='125.38',   help='Mass value for theory prediction')
     parser.add_option('',   '--year',  dest='YEAR',  type='string',default='',   help='Year -> 2016 or 2017 or 2018 or Full')
     parser.add_option('',   '--interpolation', action='store_true', dest='INTER', default=False, help='Calculate acceptances at 124 and 126 GeV')
+    parser.add_option('',   '--ZZfloating', action='store_true', dest='ZZFLOATING', default=False, help='zzfloating pvals')
 
     # store options and arguments as global variables
     global opt, args
@@ -37,7 +39,7 @@ _temp = __import__('higgs_xsbr_13TeV', globals(), locals(), ['higgs_xs','higgs_x
 higgs_xs = _temp.higgs_xs_136TeV
 higgs4l_br = _temp.higgs4l_br
 
-HCOMB_NAMES = {'mass4l': 'mass4l', 'mass4l_zzfloating': 'mass4l_zzfloating', 'pT4l': 'PTH', 'rapidity4l': 'YH', 'pTj1': 'pTj1', 'pTj2': 'pTj2', 'Nj': 'Nj', 'mjj': 'mjj', 'absdetajj': 'absdetajj', 'dphijj': 'dphijj', 'mHj': 'mHj', 'pTHj': 'pTHj', 'pTHjj': 'pTHjj', 'TCjmax': 'TCjmax', 'TBjmax': 'TBjmax', 'costhetaZ1': 'costhetaZ1', 'costhetaZ2': 'costhetaZ2', 'costhetastar': 'costhetastar', 'phi': 'phi', 'phi1': 'phi1', 'massZ1': 'massZ1', 'massZ2': 'massZ2', 'rapidity4l_pT4l': 'rapidity4l_pT4l', 'Nj_pT4l': 'Nj_pT4l', 'pT4l_pTHj': 'pT4l_pTHj', 'massZ1_massZ2': 'massZ1_massZ2', 'pTj1_pTj2': 'pTj1_pTj2', 'absdetajj_mjj': 'absdetajj_mjj', 'TCjmax_pT4l': 'TCjmax_pT4l'}
+HCOMB_NAMES = {'mass4l': 'mass4l', 'pT4l': 'PTH', 'rapidity4l': 'YH', 'pTj1': 'pTj1', 'pTj2': 'pTj2', 'Nj': 'Nj', 'mjj': 'mjj', 'absdetajj': 'absdetajj', 'dphijj': 'dphijj', 'mHj': 'mHj', 'pTHj': 'pTHj', 'pTHjj': 'pTHjj', 'TCjmax': 'TCjmax', 'TBjmax': 'TBjmax', 'costhetaZ1': 'costhetaZ1', 'costhetaZ2': 'costhetaZ2', 'costhetastar': 'costhetastar', 'phi': 'phi', 'phi1': 'phi1', 'massZ1': 'massZ1', 'massZ2': 'massZ2', 'rapidity4l_pT4l': 'rapidity4l_pT4l', 'Nj_pT4l': 'Nj_pT4l', 'pT4l_pTHj': 'pT4l_pTHj', 'massZ1_massZ2': 'massZ1_massZ2', 'pTj1_pTj2': 'pTj1_pTj2', 'absdetajj_mjj': 'absdetajj_mjj', 'TCjmax_pT4l': 'TCjmax_pT4l'}
 DECAY_OBS = ['costhetaZ1','costhetaZ2','costhetastar','phi','phi1','massZ1','massZ2']
 CHANNELS = ['4l', '2e2mu']
 
@@ -115,10 +117,12 @@ class Observable():
         self.dsigmas = dsigmas
         
     def set_acceptance(self, obs):
+
+        obs_name = obs.replace("_zzfloating", "")
         if opt.INTER:
-            fname = path['eos_path']+'inputs/inputs_sig_extrap_'+obs+'_'+opt.YEAR+".py"
+            fname = path['eos_path']+'inputs/inputs_sig_extrap_'+obs_name+'_'+opt.YEAR+".py"
         else:
-            fname = path['eos_path']+'inputs/inputs_sig_'+obs+'_'+opt.YEAR+".py"
+            fname = path['eos_path']+'inputs/inputs_sig_'+obs_name+'_'+opt.YEAR+".py"
 
         module_name = os.path.splitext(os.path.basename(fname))[0]
         spec = importlib.util.spec_from_file_location(module_name, fname)
@@ -151,41 +155,42 @@ class XSEC():
         tmp_xs_sm = {}
         h_mass = self.mh
         obs = self.obs_name
+        obs_name = obs.replace("_zzfloating", "")
         for channel in ['4e','4mu','2e2mu']:
             for obsBin in range(self.nr_bins):
                 fidxs_sm = 0
                 fidxs_sm += higgs_xs['ggH_'+opt.THEORY_MASS]*\
                             higgs4l_br[opt.THEORY_MASS+'_'+channel]*\
-                            self.acceptance['ggH125_'+channel+'_'+obs+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
+                            self.acceptance['ggH125_'+channel+'_'+obs_name+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
                 fidxs_sm += higgs_xs['VBF_'+opt.THEORY_MASS]*\
                             higgs4l_br[opt.THEORY_MASS+'_'+channel]*\
-                            self.acceptance['VBFH125_'+channel+'_'+obs+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
+                            self.acceptance['VBFH125_'+channel+'_'+obs_name+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
                 fidxs_sm += higgs_xs['WH_'+opt.THEORY_MASS]*\
                             higgs4l_br[opt.THEORY_MASS+'_'+channel]*\
-                            self.acceptance['WH125_'+channel+'_'+obs+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
+                            self.acceptance['WH125_'+channel+'_'+obs_name+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
                 fidxs_sm += higgs_xs['ZH_'+opt.THEORY_MASS]*\
                             higgs4l_br[opt.THEORY_MASS+'_'+channel]*\
-                            self.acceptance['ZH125_'+channel+'_'+obs+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
+                            self.acceptance['ZH125_'+channel+'_'+obs_name+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
                 fidxs_sm += higgs_xs['ttH_'+opt.THEORY_MASS]*\
                             higgs4l_br[opt.THEORY_MASS+'_'+channel]*\
-                            self.acceptance['ttH125_'+channel+'_'+obs+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
+                            self.acceptance['ttH125_'+channel+'_'+obs_name+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
 
                 fidxs = 0
                 fidxs += higgs_xs['ggH_'+h_mass]*\
                          higgs4l_br[h_mass+'_'+channel]*\
-                         self.acceptance['ggH125_'+channel+'_'+obs+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
+                         self.acceptance['ggH125_'+channel+'_'+obs_name+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
                 fidxs += higgs_xs['VBF_'+h_mass]*\
                          higgs4l_br[h_mass+'_'+channel]*\
-                         self.acceptance['VBFH125_'+channel+'_'+obs+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
+                         self.acceptance['VBFH125_'+channel+'_'+obs_name+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
                 fidxs += higgs_xs['WH_'+h_mass]*\
                          higgs4l_br[h_mass+'_'+channel]*\
-                         self.acceptance['WH125_'+channel+'_'+obs+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
+                         self.acceptance['WH125_'+channel+'_'+obs_name+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
                 fidxs += higgs_xs['ZH_'+h_mass]*\
                          higgs4l_br[h_mass+'_'+channel]*\
-                         self.acceptance['ZH125_'+channel+'_'+obs+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
+                         self.acceptance['ZH125_'+channel+'_'+obs_name+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
                 fidxs += higgs_xs['ttH_'+h_mass]*\
                          higgs4l_br[h_mass+'_'+channel]*\
-                         self.acceptance['ttH125_'+channel+'_'+obs+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
+                         self.acceptance['ttH125_'+channel+'_'+obs_name+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
 
                 tmp_xs_sm[channel+'_genbin'+str(obsBin)] = fidxs_sm
                 tmp_xs[channel+'_genbin'+str(obsBin)] = fidxs        
@@ -292,12 +297,19 @@ class combineCommand():
     def init_command(self):
         self.command = f'combine -M MultiDimFit {self.ws} --algo={self.algo} -n {self.output} '
         self.command += '-m 125.38 --saveWorkspace'
+
+    def combine_poi_name(self, poi):
+        obs_name = self.obs_name.replace("_zzfloating", "")
+        hcomb_name = HCOMB_NAMES[obs_name]
+        if self.obs_name.endswith("_zzfloating"):
+            hcomb_name += "_zzfloating"
+        return poi.replace(self.obs_name, hcomb_name)
         
     def define_pois(self):
         self.command += ' '
         self.command += '--redefineSignalPOIs '
         _pois = self.pois if self.version=='v3' else self.pois_to_float
-        _pois = [_p.replace(self.obs_name, HCOMB_NAMES[self.obs_name]) for _p in _pois]
+        _pois = [self.combine_poi_name(_p) for _p in _pois]
         for poi in _pois:
             self.command += f'{poi},'
         self.command = self.command[:-1]
@@ -306,7 +318,7 @@ class combineCommand():
         self.command += ' '
         self.command += '--setParameterRanges '
         for poi in self.pois:
-            poi = poi.replace(self.obs_name, HCOMB_NAMES[self.obs_name])
+            poi = self.combine_poi_name(poi)
             self.command += f'{poi}=0,5:'
         self.command = self.command[:-1]
         
@@ -319,7 +331,7 @@ class combineCommand():
             self.command += '--X-rtd MINIMIZER_freezeDisassociatedParams --fixedPointPOIs '
         for poi in self.pois:
             if self.version=='v3':
-                poi = poi.replace(self.obs_name, HCOMB_NAMES[self.obs_name])
+                poi = self.combine_poi_name(poi)
                 self.command += f'{poi}=1,'
             elif self.version=='v4':
                 self.command += f'{poi}={self.xsec_fs[poi]},'
@@ -339,8 +351,9 @@ class combineCommand():
         self.command = self.command[:-1]
 
     def replacement_map(self):
-        if self.obs_name in HCOMB_NAMES:
-            self.command = self.command.replace(self.obs_name, HCOMB_NAMES[self.obs_name])
+        obs_name = self.obs_name.replace("_zzfloating", "")
+        if obs_name in HCOMB_NAMES:
+            self.command = self.command.replace(self.obs_name, HCOMB_NAMES[obs_name])
 
 class Table():
     def __init__(self, _file):
@@ -381,13 +394,21 @@ def fill(_file, _obs, _commands):
 if __name__ == '__main__':
 
   mass4l = ['mass4l']
-  leps = ['pT4l', 'rapidity4l'] 
-  angles = ['massZ1', 'massZ2','costhetaZ1', 'costhetaZ2', 'costhetastar', 'phi', 'phi1']
+  leps = ['pT4l', 'rapidity4l', 'massZ1', 'massZ2'] 
+  angles = ['costhetaZ1', 'costhetaZ2', 'costhetastar', 'phi', 'phi1']
   jets = ['pTj1', 'pTj2', 'Nj', 'mjj', 'absdetajj','dphijj', 'mHj', 'pTHj', 'pTHjj', 'TCjmax', 'TBjmax']
   doubles = ['rapidity4l_pT4l', 'pT4l_pTHj', 'massZ1_massZ2', 'pTj1_pTj2', 'absdetajj_mjj', 'Nj_pT4l', 'TCjmax_pT4l'] # 'Nj_pT4l'
 
-  #vars = mass4l + leps + angles + jets + doubles
-  vars = ['mass4l']#, 'TCjmax_pT4l'] 
+  vars =  mass4l# + leps + angles + jets + doubles
+  #vars = [ 'rapidity4l', 'TCjmax', 'pTj1']
+
+  print(len(vars))
+
+  if opt.ZZFLOATING:
+    for var in vars:
+        vars[vars.index(var)] = var+'_zzfloating'
+
+  #vars = ['mass4l']#, 'TCjmax_pT4l'] 
 
   dump_file = open('pval_cmds.txt','w')
 
@@ -402,14 +423,15 @@ if __name__ == '__main__':
     compatibilitySM = combineCommand(_obs, False, ver, ch)
     commands = [bestFit.command, compatibilitySM.command]
     fill(dump_file, _obs, commands)
+    dump_file.flush()
     fname = f"higgsCombine{compatibilitySM.output}.MultiDimFit.mH125.38.root"
     # if _obs in HCOMB_NAMES: fname = fname.replace(_obs, HCOMB_NAMES[_obs])
     #if (os.path.isfile(fname) | os.path.isfile(f"{PVAL_PATH}/{fname}")): 
     # print(f"................. Skip {_obs}, fit already done")
     # continue
 
-    os.system(bestFit.command)
-    os.system(compatibilitySM.command)
+    subprocess.run(bestFit.command, shell=True, check=True)
+    subprocess.run(compatibilitySM.command, shell=True, check=True)
 
   dump_file.close()
 

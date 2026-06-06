@@ -41,6 +41,18 @@ def freeze_nuisances_for_fit(cmd):
         return cmd
     return cmd + ' ' + FREEZE_NUISANCES_OPTION
 
+def vbf_related_measurement_requested():
+    return any([
+        getattr(opt, 'DO_VBFH', False),
+        getattr(opt, 'DO_OTHER_PROD', False),
+        getattr(opt, 'DO_VBF_FIX', False),
+        getattr(opt, 'DO_VBFH_OTHER_PROD', False),
+        getattr(opt, 'DO_TOTAL_MINUS_VBF', False),
+        getattr(opt, 'DO_GGH_EXTRAP', False),
+        getattr(opt, 'DO_GGH_FIXED', False),
+        getattr(opt, 'ALL_EXTRAP', False),
+    ])
+
 def parseOptions():
 
     global opt, args, runAllSteps
@@ -76,7 +88,14 @@ def parseOptions():
     parser.add_option('',   '--acc_unc', action='store_true', dest='ACC_UNC', default=False,   help='theory uncertainites on acceptance matrices')
     parser.add_option('',   '--split_prod_mode', action='store_true', dest='SPLIT_PROD_MODE', default=False,   help='split production modes in datacards')
     parser.add_option('',   '--NOK1K2',action='store_true', dest='NOK1K2',default=False, help='remove K1 K2 parameters')
-    parser.add_option('',   '--doVBF', action='store_true', dest='DO_VBF', default=False, help='Float VBF independently in each absdetajj vs mjj bin')
+    parser.add_option('',   '--doVBFH', action='store_true', dest='DO_VBFH', default=False, help='absdetajj vs mjj only: float the 4 VBFH bin scale factors; non-VBF production has independent otherProd scale factors that float as other POIs.')
+    parser.add_option('',   '--doOtherProd', action='store_true', dest='DO_OTHER_PROD', default=False, help='absdetajj vs mjj only: float the 4 non-VBF/otherProd bin scale factors; VBFH has independent VBFH scale factors that float as other POIs.')
+    parser.add_option('',   '--doVBFfix', action='store_true', dest='DO_VBF_FIX', default=False, help='absdetajj vs mjj only: fix VBFH and otherProd to Asimov/SM in bins 0-2; in bin 3 fit VBFH and otherProd simultaneously.')
+    parser.add_option('',   '--doVBFHotherProd', action='store_true', dest='DO_VBFH_OTHER_PROD', default=False, help='absdetajj vs mjj only: fit VBFH and otherProd simultaneously in all 4 bins, giving 8 POIs total.')
+    parser.add_option('',   '--doTotalMinusVBF', action='store_true', dest='DO_TOTAL_MINUS_VBF', default=False, help='absdetajj vs mjj only: in bins 0-2 float total-minus-VBF/non-VBF with VBFH fixed to Asimov/SM; in bin 3 float VBFH with total-minus-VBF fixed to Asimov/SM.')
+    parser.add_option('',   '--doGGHExtrap', action='store_true', dest='DO_GGH_EXTRAP', default=False, help='absdetajj vs mjj only: float VBFH in each bin; ggH is fixed to Asimov/SM in bins 0-2 and the bin-3 ggH normalization is extrapolated from a floating total ggH normalization.')
+    parser.add_option('',   '--doGGHFixed', action='store_true', dest='DO_GGH_FIXED', default=False, help='absdetajj vs mjj only: float VBFH in each bin; ggH is fixed to Asimov/SM in all bins and non-ggH/non-VBF production floats as other POIs.')
+    parser.add_option('',   '--doAllExtrap', action='store_true', dest='ALL_EXTRAP', default=False, help='absdetajj vs mjj only: fix VBFH to Asimov/SM in bins 0-2 and fit VBFH in bin 3; float total-minus-VBF in bins 0-2 and fix its bin-3 normalization to total minus the fitted bins 0-2.')
 
 
     # Unblind option
@@ -88,10 +107,10 @@ def parseOptions():
     global opt, args
     (opt, args) = parser.parse_args()
 
-    if opt.DO_VBF:
+    if vbf_related_measurement_requested():
         obsName = opt.OBSNAME.strip()
         if obsName != 'absdetajj vs mjj':
-            parser.error('--doVBF may only be used with --obsName "absdetajj vs mjj"')
+            parser.error('VBF-related scan flags may only be used with --obsName "absdetajj vs mjj"')
         opt.SPLIT_PROD_MODE = True
 
     # prepare the global flag if all the step should be run
@@ -282,7 +301,60 @@ def split_signal_processes(fitName, boundary):
 def add_multisignal_map(cmd, process, poi):
     if poi == '1':
         return cmd + "--PO 'map=.*/%s:1' " %process
+    if '=' in poi:
+        return cmd + "--PO 'map=.*/%s:%s' " %(process, poi)
     return cmd + "--PO 'map=.*/%s:%s[1.0,0.0,10.0]' " %(process, poi)
+
+def add_unmatched_poi(cmd, poi):
+    return cmd + "--PO 'map=^$:%s' " %poi
+
+def get_ggh_asimov_xs_per_bin(obsName, nBins, higgs_xs, higgs4l_br, acc):
+    values = []
+    for obsBin in range(nBins):
+        values.append(get_asimov_xs_for_processes(obsName, obsBin, ['ggH'], higgs_xs, higgs4l_br, acc))
+    return values
+
+def get_asimov_xs_for_processes(obsName, obsBin, prodModes, higgs_xs, higgs4l_br, acc):
+    xs_names = {'ggH': 'ggH', 'VBFH': 'VBF', 'WH': 'WH', 'ZH': 'ZH', 'ttH': 'ttH'}
+    total = 0.0
+    for prodMode in prodModes:
+        for channel in ['4e', '4mu', '2e2mu']:
+            total += (
+                higgs_xs[xs_names[prodMode]+'_'+opt.THEORYMASS]
+                * higgs4l_br[opt.THEORYMASS+'_'+channel]
+                * acc[prodMode+'125_'+channel+'_'+obsName+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
+            )
+    return total
+
+def get_asimov_xs_per_bin(obsName, nBins, prodModes, higgs_xs, higgs4l_br, acc):
+    return [
+        get_asimov_xs_for_processes(obsName, obsBin, prodModes, higgs_xs, higgs4l_br, acc)
+        for obsBin in range(nBins)
+    ]
+
+def ggh_extrap_expression(fitName, ggh_asimov_bins):
+    fixed_bins = sum(ggh_asimov_bins[:-1])
+    last_bin = ggh_asimov_bins[-1]
+    total = fixed_bins + last_bin
+    if last_bin <= 0:
+        raise RuntimeError('ggHExtrap needs a positive ggH Asimov expectation in the last bin')
+
+    scale_name = 'r_ggH_extrap_%s' %fitName
+    total_name = 'totalggH_data_%s' %fitName
+    return '%s=expr;;%s("(@0-%g)/%g",%s)' %(scale_name, scale_name, fixed_bins, last_bin, total_name)
+
+def last_bin_remainder_expression(name, fitName, component_asimov_bins, total_xs):
+    last_bin = component_asimov_bins[-1]
+    if last_bin <= 0:
+        raise RuntimeError(name+' needs a positive Asimov expectation in the last bin')
+
+    terms = []
+    args = []
+    for i, xs in enumerate(component_asimov_bins[:-1]):
+        terms.append('@%d*%g' %(i, xs))
+        args.append('r_totalMinusVBF_allExtrap_%s_%d' %(fitName, i))
+    expr = '(%g-%s)/%g' %(total_xs, '-'.join(terms), last_bin)
+    return '%s=expr;;%s("%s",%s)' %(name, name, expr, ','.join(args))
 
 def run_multidim_scan(obsName, workspace, poi, scan_name, points=100, low=0, high=10, freeze_nuisances=False, set_value=None, save_inactive_poi=False):
     cmd_fit = 'combine -n _%s_%s -M MultiDimFit %s ' %(obsName, scan_name, workspace)
@@ -330,53 +402,94 @@ def run_multidim_scan_2d(obsName, workspace, poi_x, poi_y, scan_name, points=100
     processCmd(cmd_fit)
     cmds.append(cmd_fit)
 
-def do_vbf_measurement_configs(fitName, nBins):
+def do_vbf_measurement_configs(fitName, nBins, ggh_asimov_bins, otherprod_asimov_bins):
     # These mappings are applied to every generated truth bin.  The fit later
     # scans each requested truth-bin POI, while the other truth-bin POIs are
     # present and float as other POIs so reco-bin migrations remain part of the
     # model.
-    configs = [
-        {
-            'tag': 'doVBF',
+    configs = []
+    if opt.DO_VBFH:
+        configs.append({
+            'tag': 'doVBFH',
             'fits': [
-                fit
-                for i in range(nBins)
-                for fit in [
-                    ('r_VBFH_%s_%d' %(fitName, i), 'r_VBFH_%d' %i),
-                    ('r_otherProd_%s_%d' %(fitName, i), 'r_otherProd_%d' %i),
-                ]
-            ],
-            'fits_2d': [
-                (
-                    'r_VBFH_%s_%d' %(fitName, i),
-                    'r_otherProd_%s_%d' %(fitName, i),
-                    'r_VBFH_vs_otherProd_%d' %i,
-                )
+                ('r_VBFH_%s_%d' %(fitName, i), 'r_VBFH_%d' %i)
                 for i in range(nBins)
             ],
             'poi_for_process': lambda prodMode, i: (
                 'r_VBFH_%s_%d' %(fitName, i) if prodMode == 'VBFH'
                 else 'r_otherProd_%s_%d' %(fitName, i)
             ),
-        },
-        {
-            'tag': 'totalMinusVBF',
-            'fits': [('r_totalMinusVBF_%s_%d' %(fitName, i), 'r_totalMinusVBF_%d' %i) for i in range(nBins)],
+        })
+    if opt.DO_OTHER_PROD:
+        configs.append({
+            'tag': 'doOtherProd',
+            'fits': [
+                ('r_otherProd_%s_%d' %(fitName, i), 'r_otherProd_%d' %i)
+                for i in range(nBins)
+            ],
             'poi_for_process': lambda prodMode, i: (
-                '1' if prodMode == 'VBFH'
-                else 'r_totalMinusVBF_%s_%d' %(fitName, i)
+                'r_VBFH_%s_%d' %(fitName, i) if prodMode == 'VBFH'
+                else 'r_otherProd_%s_%d' %(fitName, i)
             ),
-        },
-        {
-            'tag': 'ggHExtrap',
-            'fits': [('r_VBFH_ggHExtrap_%s_%d' %(fitName, i), 'r_VBFH_ggHExtrap_%d' %i) for i in range(nBins)],
+        })
+    if opt.DO_VBF_FIX:
+        configs.append({
+            'tag': 'doVBFfix',
+            'fits': [
+                ('r_VBFH_fix_%s_%d' %(fitName, nBins-1), 'r_VBFfix_VBFH_%d' %(nBins-1)),
+                ('r_otherProd_fix_%s_%d' %(fitName, nBins-1), 'r_VBFfix_otherProd_%d' %(nBins-1)),
+            ],
             'poi_for_process': lambda prodMode, i: (
-                'r_VBFH_ggHExtrap_%s_%d' %(fitName, i) if prodMode == 'VBFH'
-                else 'r_ggH_extrap_%s' %fitName if prodMode == 'ggH'
+                '1' if i < nBins-1
+                else 'r_VBFH_fix_%s_%d' %(fitName, i) if prodMode == 'VBFH'
+                else 'r_otherProd_fix_%s_%d' %(fitName, i)
+            ),
+        })
+    if opt.DO_VBFH_OTHER_PROD:
+        configs.append({
+            'tag': 'doVBFHotherProd',
+            'fits': (
+                [('r_VBFH_otherProd_%s_%d' %(fitName, i), 'r_VBFHotherProd_VBFH_%d' %i) for i in range(nBins)]
+                + [('r_otherProd_otherProd_%s_%d' %(fitName, i), 'r_VBFHotherProd_otherProd_%d' %i) for i in range(nBins)]
+            ),
+            'poi_for_process': lambda prodMode, i: (
+                'r_VBFH_otherProd_%s_%d' %(fitName, i) if prodMode == 'VBFH'
+                else 'r_otherProd_otherProd_%s_%d' %(fitName, i)
+            ),
+        })
+    if opt.DO_TOTAL_MINUS_VBF:
+        configs.append({
+            'tag': 'totalMinusVBF',
+            'fits': (
+                [('r_totalMinusVBF_%s_%d' %(fitName, i), 'r_totalMinusVBF_%d' %i) for i in range(nBins-1)]
+                + [('r_VBFH_totalMinusVBF_%s_%d' %(fitName, nBins-1), 'r_totalMinusVBF_VBFH_%d' %(nBins-1))]
+            ),
+            'poi_for_process': lambda prodMode, i: (
+                '1' if prodMode == 'VBFH' and i < nBins-1
+                else 'r_VBFH_totalMinusVBF_%s_%d' %(fitName, i) if prodMode == 'VBFH'
+                else 'r_totalMinusVBF_%s_%d' %(fitName, i) if i < nBins-1
                 else '1'
             ),
-        },
-        {
+        })
+    if opt.DO_GGH_EXTRAP:
+        configs.append({
+            'tag': 'ggHExtrap',
+            'fits': [('r_VBFH_ggHExtrap_%s_%d' %(fitName, i), 'r_VBFH_ggHExtrap_%d' %i) for i in range(nBins)],
+            'extra_pois': ['totalggH_data_%s[%g,%g,%g]' %(
+                fitName,
+                sum(ggh_asimov_bins),
+                sum(ggh_asimov_bins[:-1]),
+                sum(ggh_asimov_bins[:-1]) + 10.0 * ggh_asimov_bins[-1],
+            )],
+            'poi_for_process': lambda prodMode, i: (
+                'r_VBFH_ggHExtrap_%s_%d' %(fitName, i) if prodMode == 'VBFH'
+                else '1' if prodMode == 'ggH' and i < nBins-1
+                else ggh_extrap_expression(fitName, ggh_asimov_bins) if prodMode == 'ggH'
+                else '1'
+            ),
+        })
+    if opt.DO_GGH_FIXED:
+        configs.append({
             'tag': 'ggHFixed',
             'fits': [('r_VBFH_ggHFixed_%s_%d' %(fitName, i), 'r_VBFH_ggHFixed_%d' %i) for i in range(nBins)],
             'poi_for_process': lambda prodMode, i: (
@@ -384,8 +497,28 @@ def do_vbf_measurement_configs(fitName, nBins):
                 else '1' if prodMode == 'ggH'
                 else 'r_otherNoGGH_%s_%d' %(fitName, i)
             ),
-        },
-    ]
+        })
+    if opt.ALL_EXTRAP:
+        total_otherprod_xs = sum(otherprod_asimov_bins)
+        configs.append({
+            'tag': 'allExtrap',
+            'fits': (
+                [('r_totalMinusVBF_allExtrap_%s_%d' %(fitName, i), 'r_allExtrap_totalMinusVBF_%d' %i) for i in range(nBins-1)]
+                + [('r_VBFH_allExtrap_%s_%d' %(fitName, nBins-1), 'r_allExtrap_VBFH_%d' %(nBins-1))]
+            ),
+            'poi_for_process': lambda prodMode, i: (
+                '1' if prodMode == 'VBFH' and i < nBins-1
+                else 'r_VBFH_allExtrap_%s_%d' %(fitName, i) if prodMode == 'VBFH'
+                else 'r_totalMinusVBF_allExtrap_%s_%d' %(fitName, i) if i < nBins-1
+                else last_bin_remainder_expression(
+                    'r_totalMinusVBF_allExtrap_%s_%d' %(fitName, i),
+                    fitName,
+                    otherprod_asimov_bins,
+                    total_otherprod_xs,
+                ) if prodMode == 'ggH'
+                else 'r_totalMinusVBF_allExtrap_%s_%d' %(fitName, i)
+            ),
+        })
     return configs
 
 # Define function for processing of os command
@@ -450,18 +583,21 @@ def produceDatacards(obsName, observableBins, ModelName, physicalmodel):
                     # os.system("sed -i 's~_xs.Databin0~_xs_"+ModelName+"_"+obsName+"_"+PhysicalModel+".Databin0~g' xs_125.0/hzz4l_"+fState+"S_13TeV_xs_"+obsName+"_bin0_"+PhysicalModel+".txt")
         print('DATACARD '+year+' PRODUCED SUCCESSFULLY')
 
-def runv3(years, observableBins, obsName, fitName, physicalModel, fStates=['4e', '4mu', '2e2mu']):
+def runv3(years, observableBins, obsName, fitName, physicalModel, higgs_xs=None, higgs4l_br=None, acc=None, fStates=['4e', '4mu', '2e2mu']):
     os.chdir('../datacard')
     card_name = 'hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt'
     cmd_combCards = 'combineCards.py '
 
     nBins = len(observableBins)
     if not doubleDiff: nBins = nBins-1 #in case of 1D measurement the number of bins is -1 the length of the list of bin boundaries
-    if opt.DO_VBF and nBins != 4:
-        raise RuntimeError('--doVBF expects "absdetajj vs mjj" to have bins 0-3, but found '+str(nBins)+' bins')
-    do_vbf_configs = do_vbf_measurement_configs(fitName, nBins) if opt.DO_VBF else []
-
+    do_vbf_mode = vbf_related_measurement_requested()
+    if do_vbf_mode and nBins != 4:
+        raise RuntimeError('VBF-related scan flags expect "absdetajj vs mjj" to have bins 0-3, but found '+str(nBins)+' bins')
     obsName_base = obsName.replace('_zzfloating', '')
+    ggh_asimov_bins = get_ggh_asimov_xs_per_bin(obsName_base, nBins, higgs_xs, higgs4l_br, acc) if opt.DO_GGH_EXTRAP else []
+    otherprod_asimov_bins = get_asimov_xs_per_bin(obsName_base, nBins, ['ggH', 'WH', 'ZH', 'ttH'], higgs_xs, higgs4l_br, acc) if opt.ALL_EXTRAP else []
+    do_vbf_configs = do_vbf_measurement_configs(fitName, nBins, ggh_asimov_bins, otherprod_asimov_bins) if do_vbf_mode else []
+
     for year in years:
       for cat in fStates:
         for i in range(nBins):
@@ -497,6 +633,8 @@ def runv3(years, observableBins, obsName, fitName, physicalModel, fStates=['4e',
         config['card_root'] = card_name.replace('.txt', '_%s.root' %config['tag'])
         config['cmd_t2w'] = 'text2workspace.py %s -P HiggsAnalysis.CombinedLimit.PhysicsModel:multiSignalModel --PO verbose ' %card_name
         config['cmd_t2w'] += "--PO 'higgsMassRange=123,127' "
+        for poi in config.get('extra_pois', []):
+            config['cmd_t2w'] = add_unmatched_poi(config['cmd_t2w'], poi)
     for i in range(nBins):
         boundaries = get_boundary_name(obsName, observableBins, i)
 
@@ -543,34 +681,35 @@ def runv3(years, observableBins, obsName, fitName, physicalModel, fStates=['4e',
     
     # cmd_fit = 'combine -n _%s_Fit -M MultiDimFit %s ' %(fitName, card_name.replace('txt', 'root'))
     # cmd_fit += '-m 125.38 --freezeParameters MH --saveWorkspace --algo=singles --cminDefaultMinimizerStrategy 0 -t -1 --setParameters '
-    for i in range(nBins):
-        if obsName == 'dphijj' and i == 4:
-            downScanRange = 0
-            upScanRange = 5
-            nPoints = 200
-        elif obsName == 'rapidity4l_pT4l':
-            downScanRange = -25
-            upScanRange = 25
-            nPoints = 100
-        elif obsName == 'Nj':
-            downScanRange = 0
-            upScanRange = 5
-            nPoints = 100
-        else:
-            downScanRange = 0
-            upScanRange = 4
-            nPoints = 100
-        POI = 'r_smH_%s_%d' %(fitName, i)
-        POI_n = 'r_smH_%d' %i
-        cmd_fit = 'combine -n _%s_%s -M MultiDimFit %s ' %(obsName, POI_n, 'SM_125_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'_'+str(opt.YEAR)+'.root')
-        if (opt.NOK1K2): cmd_fit += '-m 125.38 --freezeParameters MH,K1Bin0,K2Bin0 --saveWorkspace --algo=grid --floatOtherPOIs=1 --points='+str(nPoints)+' --cminDefaultMinimizerStrategy 0 '
-        else: cmd_fit += '-m 125.38 --freezeParameters MH --saveWorkspace --algo=grid --floatOtherPOIs=1 --points='+str(nPoints)+' --cminDefaultMinimizerStrategy 0 '
-        if not opt.UNBLIND: cmd_fit += '-t -1 --saveToys --setParameters %s=1 ' %(POI)
-        cmd_fit_tmp = cmd_fit + '-P %s --setParameterRanges %s=%i,%i --redefineSignalPOI %s' %(POI, POI, downScanRange, upScanRange, POI)
+    if not do_vbf_mode:
+        for i in range(nBins):
+            if obsName == 'dphijj' and i == 4:
+                downScanRange = 0
+                upScanRange = 5
+                nPoints = 200
+            elif obsName == 'rapidity4l_pT4l':
+                downScanRange = 0
+                upScanRange = 25
+                nPoints = 100
+            elif obsName == 'Nj':
+                downScanRange = 0
+                upScanRange = 5
+                nPoints = 100
+            else:
+                downScanRange = 0
+                upScanRange = 4
+                nPoints = 100
+            POI = 'r_smH_%s_%d' %(fitName, i)
+            POI_n = 'r_smH_%d' %i
+            cmd_fit = 'combine -n _%s_%s -M MultiDimFit %s ' %(obsName, POI_n, 'SM_125_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'_'+str(opt.YEAR)+'.root')
+            if (opt.NOK1K2): cmd_fit += '-m 125.38 --freezeParameters MH,K1Bin0,K2Bin0 --saveWorkspace --algo=grid --floatOtherPOIs=1 --points='+str(nPoints)+' --cminDefaultMinimizerStrategy 0 '
+            else: cmd_fit += '-m 125.38 --freezeParameters MH --saveWorkspace --algo=grid --floatOtherPOIs=1 --points='+str(nPoints)+' --cminDefaultMinimizerStrategy 0 '
+            if not opt.UNBLIND: cmd_fit += '-t -1 --saveToys --setParameters %s=1 ' %(POI)
+            cmd_fit_tmp = cmd_fit + '-P %s --setParameterRanges %s=%i,%i --redefineSignalPOI %s' %(POI, POI, downScanRange, upScanRange, POI)
 
-        print(cmd_fit_tmp)
-        processCmd(cmd_fit_tmp)
-        cmds.append(cmd_fit_tmp)
+            print(cmd_fit_tmp)
+            processCmd(cmd_fit_tmp)
+            cmds.append(cmd_fit_tmp)
 
     for config in do_vbf_configs:
         for poi, scan_name in config['fits']:
@@ -624,34 +763,35 @@ def runv3(years, observableBins, obsName, fitName, physicalModel, fStates=['4e',
     #         processCmd(cmd_fit_tmp)
 
     #Stat-only
-    for i in range(nBins):
-        if obsName == 'dphijj' and i == 4:
-            downScanRange = 0
-            upScanRange = 5
-            nPoints = 200
-        elif obsName == 'rapidity4l_pT4l':
-            downScanRange = -10
-            upScanRange = 10
-            nPoints = 100
-        elif obsName == 'Nj':
-            downScanRange = -10
-            upScanRange = 10
-            nPoints = 100
-        else:
-            downScanRange = 0
-            upScanRange = 4
-            nPoints = 100
-        POI = 'r_smH_%s_%d' %(fitName, i)
-        POI_n = 'r_smH_%d' %i
-        cmd_fit = 'combine -n _%s_%s_NoSys -M MultiDimFit %s -w w --snapshotName "MultiDimFit" ' %(obsName, POI_n, nominal_fit_result_file(obsName, POI_n))
-        if (opt.NOK1K2): cmd_fit += '-m 125.38 --freezeParameters MH,K1Bin0,K2Bin0 --saveWorkspace --algo=grid --floatOtherPOIs=1 --points='+str(nPoints)+' --freezeNuisanceGroups nuis --cminDefaultMinimizerStrategy 0 '
-        else: cmd_fit += '-m 125.38 --freezeParameters MH --saveWorkspace --algo=grid --floatOtherPOIs=1 --points='+str(nPoints)+' --freezeNuisanceGroups nuis --cminDefaultMinimizerStrategy 0 '
-        if not opt.UNBLIND: cmd_fit += '-t -1 --saveToys --setParameters %s=1 ' %(POI)
-        cmd_fit_tmp = cmd_fit + '-P %s --setParameterRanges %s=%i,%i --redefineSignalPOI %s' %(POI, POI, downScanRange, upScanRange, POI)
+    if not do_vbf_mode:
+        for i in range(nBins):
+            if obsName == 'dphijj' and i == 4:
+                downScanRange = 0
+                upScanRange = 5
+                nPoints = 200
+            elif obsName == 'rapidity4l_pT4l':
+                downScanRange = 0
+                upScanRange = 10
+                nPoints = 100
+            elif obsName == 'Nj':
+                downScanRange = -10
+                upScanRange = 10
+                nPoints = 100
+            else:
+                downScanRange = 0
+                upScanRange = 4
+                nPoints = 100
+            POI = 'r_smH_%s_%d' %(fitName, i)
+            POI_n = 'r_smH_%d' %i
+            cmd_fit = 'combine -n _%s_%s_NoSys -M MultiDimFit %s -w w --snapshotName "MultiDimFit" ' %(obsName, POI_n, nominal_fit_result_file(obsName, POI_n))
+            if (opt.NOK1K2): cmd_fit += '-m 125.38 --freezeParameters MH,K1Bin0,K2Bin0 --saveWorkspace --algo=grid --floatOtherPOIs=1 --points='+str(nPoints)+' --freezeNuisanceGroups nuis --cminDefaultMinimizerStrategy 0 '
+            else: cmd_fit += '-m 125.38 --freezeParameters MH --saveWorkspace --algo=grid --floatOtherPOIs=1 --points='+str(nPoints)+' --freezeNuisanceGroups nuis --cminDefaultMinimizerStrategy 0 '
+            if not opt.UNBLIND: cmd_fit += '-t -1 --saveToys --setParameters %s=1 ' %(POI)
+            cmd_fit_tmp = cmd_fit + '-P %s --setParameterRanges %s=%i,%i --redefineSignalPOI %s' %(POI, POI, downScanRange, upScanRange, POI)
 
-        print(cmd_fit_tmp)
-        processCmd(cmd_fit_tmp)
-        cmds.append(cmd_fit_tmp)
+            print(cmd_fit_tmp)
+            processCmd(cmd_fit_tmp)
+            cmds.append(cmd_fit_tmp)
 
     for config in do_vbf_configs:
         for poi, scan_name in config['fits']:
@@ -838,7 +978,7 @@ def runFiducialXS():
         produceDatacards(obsName, observableBins, DataModelName, physicalModel)
         os.chdir(_fit_dir)
         if physicalModel == 'v3':
-            runv3(years, observableBins, obsName, _obsName[obsName], physicalModel)
+            runv3(years, observableBins, obsName, _obsName[obsName], physicalModel, higgs_xs, higgs4l_br, acc)
             break
         # combination of bins (if there is just one bin, it is essentially a change of name from _bin0_ to _bin_)
         fStates = ['2e2mu','4mu','4e']

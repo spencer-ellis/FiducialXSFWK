@@ -43,6 +43,7 @@ def parseOptions():
     parser.add_option('',   '--year',  dest='YEAR',  type='string',default='2022',   help='Year -> 2016 or 2017 or 2018 or Full')
     parser.add_option('',   '--ZZfloating',action='store_true', dest='ZZ',default=False, help='Let ZZ normalisation to float')
     parser.add_option('',   '--interpolation', action='store_true', dest='INTER', default=False, help='Calculate acceptances at 124 and 126 GeV')
+    parser.add_option('',   '--doVBF', action='store_true', dest='DO_VBF', default=False, help='Run VBF scan correlation matrices for absdetajj vs mjj')
 
     # Unblind option
     parser.add_option('',   '--unblind', action='store_true', dest='UNBLIND', default=False, help='Use real data')
@@ -52,6 +53,9 @@ def parseOptions():
     # store options and arguments as global variables
     global opt, args
     (opt, args) = parser.parse_args()
+
+    if opt.DO_VBF and opt.OBSNAME.strip() not in ['absdetajj vs mjj', 'absdetajj_mjj']:
+        parser.error('--doVBF may only be used with --obsName "absdetajj vs mjj"')
 
 # parse the arguments and options
 parseOptions()
@@ -73,6 +77,86 @@ def processCmd(cmd, quiet=False):
         print(res.stdout)
     return res.stdout
 
+def get_fit_name(obsName):
+    obs_map = {'pT4l': 'PTH', 'rapidity4l': 'YH', 'pTj1': 'pTj1', 'Nj': 'Nj'}
+    return obs_map.get(obsName, obsName)
+
+def get_vbf_correlation_configs(fitName, nBins):
+    return [
+        {
+            'tag': 'doVBFH',
+            'label': 'doVBFH',
+            'pois': ['r_VBFH_%s_%d' %(fitName, i) for i in range(nBins)],
+        },
+        {
+            'tag': 'doOtherProd',
+            'label': 'doOtherProd',
+            'pois': ['r_otherProd_%s_%d' %(fitName, i) for i in range(nBins)],
+        },
+        {
+            'tag': 'doVBFfix',
+            'label': 'doVBFfix',
+            'pois': [
+                'r_VBFH_fix_%s_%d' %(fitName, nBins-1),
+                'r_otherProd_fix_%s_%d' %(fitName, nBins-1),
+            ],
+        },
+        {
+            'tag': 'doVBFHotherProd',
+            'label': 'doVBFHotherProd',
+            'pois': (
+                ['r_VBFH_otherProd_%s_%d' %(fitName, i) for i in range(nBins)]
+                + ['r_otherProd_otherProd_%s_%d' %(fitName, i) for i in range(nBins)]
+            ),
+        },
+        {
+            'tag': 'totalMinusVBF',
+            'label': 'totalMinusVBF',
+            'pois': (
+                ['r_totalMinusVBF_%s_%d' %(fitName, i) for i in range(nBins-1)]
+                + ['r_VBFH_totalMinusVBF_%s_%d' %(fitName, nBins-1)]
+            ),
+        },
+        {
+            'tag': 'ggHExtrap',
+            'label': 'ggHExtrap',
+            'pois': ['r_VBFH_ggHExtrap_%s_%d' %(fitName, i) for i in range(nBins)],
+        },
+        {
+            'tag': 'ggHFixed',
+            'label': 'ggHFixed',
+            'pois': ['r_VBFH_ggHFixed_%s_%d' %(fitName, i) for i in range(nBins)],
+        },
+        {
+            'tag': 'allExtrap',
+            'label': 'allExtrap',
+            'pois': (
+                ['r_totalMinusVBF_allExtrap_%s_%d' %(fitName, i) for i in range(nBins-1)]
+                + ['r_VBFH_allExtrap_%s_%d' %(fitName, nBins-1)]
+            ),
+        },
+    ]
+
+def run_vbf_correlation():
+    if obsName != 'absdetajj_mjj' or nBins != 4:
+        raise RuntimeError('--doVBF expects "absdetajj vs mjj" to have bins 0-3, but found '+str(nBins)+' bins')
+
+    fitName = get_fit_name(obsName)
+    for config in get_vbf_correlation_configs(fitName, nBins):
+        workspace = '../combine_files/SM_125_all_13TeV_xs_%s_bin_v3_%s_%s.root' %(obsName, config['tag'], opt.YEAR)
+        # Correlation fits need room on both sides of the best fit. Several
+        # VBF/otherProd difference modes have uncertainties larger than one,
+        # so a lower bound of zero prevents robust Hesse from constructing a
+        # valid finite-difference stencil and produces negative variances.
+        poi_ranges = ':'.join(['%s=-10.0,10.0' %poi for poi in config['pois']])
+        pois = ','.join(config['pois'])
+        cmd = 'combine -n _%s_%s -M MultiDimFit %s -m 125.38 --freezeParameters MH --floatOtherPOIs=1 --saveWorkspace --saveFitResult --algo=none --robustFit 1 --cminDefaultMinimizerStrategy 1 --saveInactivePOI=1 --setParameterRanges %s --redefineSignalPOI %s' %(obsName, config['label'], workspace, poi_ranges, pois)
+        if not opt.UNBLIND:
+            cmd += ' -t -1 --setParameters '
+            cmd += ','.join(['%s=1' %poi for poi in config['pois']])
+        print(cmd, '\n')
+        processCmd(cmd)
+
 def RunCombineCorrelation():
     _th_MH = opt.THEORYMASS
 
@@ -83,6 +167,10 @@ def RunCombineCorrelation():
 
     os.chdir(path['eos_path']+'combine_files/')
     # print 'Current directory: combine_files'
+
+    if opt.DO_VBF:
+        run_vbf_correlation()
+        return
 
     for physicalModel in PhysicalModels:
         if physicalModel == 'v2': # In this case implemented for mass4l only (Mass-dependent fit using separate final states)
@@ -150,10 +238,7 @@ def RunCombineCorrelation():
 
 
         elif physicalModel == 'v3':
-            _obsName = {'pT4l': 'PTH', 'rapidity4l': 'YH', 'pTj1': 'pTj1', 'Nj': 'Nj'}
-            if obsName not in _obsName:
-                _obsName[obsName] = obsName
-            fitName = _obsName[obsName]
+            fitName = get_fit_name(obsName)
 
             cmd = 'combine -n _'+obsName+'_'+physicalModel+' -M MultiDimFit ' '../combine_files/SM_125_all_13TeV_xs_'+obsName+'_bin_v3_'+str(opt.YEAR)+'.root -m 125.38 --freezeParameters MH --floatOtherPOIs=1 --saveWorkspace --algo=singles --cminDefaultMinimizerStrategy 0 --robustHesse 1 --robustHesseSave 1 --setParameterRanges '
             for obsBin in range(nBins):

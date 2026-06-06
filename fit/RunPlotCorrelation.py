@@ -40,6 +40,7 @@ def parseOptions():
     parser.add_option('',   '--year',  dest='YEAR',  type='string',default='2022',   help='Year -> 2016 or 2017 or 2018 or Full')
     parser.add_option('',   '--ZZfloating',action='store_true', dest='ZZ',default=False, help='Let ZZ normalisation to float')
     parser.add_option('',   '--interpolation', action='store_true', dest='INTER', default=False, help='Calculate acceptances at 124 and 126 GeV')
+    parser.add_option('',   '--doVBF', action='store_true', dest='DO_VBF', default=False, help='Plot VBF scan correlation matrices for absdetajj vs mjj')
 
     # Unblind option
     parser.add_option('',   '--unblind', action='store_true', dest='UNBLIND', default=False, help='Use real data')
@@ -49,6 +50,9 @@ def parseOptions():
     # store options and arguments as global variables
     global opt, args
     (opt, args) = parser.parse_args()
+
+    if opt.DO_VBF and opt.OBSNAME.strip() not in ['absdetajj vs mjj', 'absdetajj_mjj']:
+        parser.error('--doVBF may only be used with --obsName "absdetajj vs mjj"')
 
 
 VAR_LABELS = {
@@ -99,11 +103,62 @@ def processCmd(cmd, quiet = 0):
         raise RuntimeError("%r failed, exit status: %d" % (cmd, p.returncode))
     return output
 
+def get_fit_name(obsName):
+    obs_map = {'pT4l': 'PTH', 'rapidity4l': 'YH', 'pTj1': 'pTj1', 'Nj': 'Nj'}
+    return obs_map.get(obsName, obsName)
+
+def get_vbf_pois(label, fitName, nBins):
+    poi_templates = {
+        'doVBFH': 'r_VBFH_%s_%d',
+        'doOtherProd': 'r_otherProd_%s_%d',
+        'totalMinusVBF': 'r_totalMinusVBF_%s_%d',
+        'ggHExtrap': 'r_VBFH_ggHExtrap_%s_%d',
+        'ggHFixed': 'r_VBFH_ggHFixed_%s_%d',
+    }
+    if label == 'doVBFfix':
+        pois = (
+            ['r_VBFH_fix_%s_%d' %(fitName, i) for i in range(nBins)]
+            + ['r_otherProd_fix_%s_%d' %(fitName, i) for i in range(nBins)]
+        )
+        pois_plot = (
+            ['VBF_%d (fixed)' %i if i < nBins-1 else 'VBF_%d' %i for i in range(nBins)]
+            + ['other_%d (fixed)' %i if i < nBins-1 else 'other_%d' %i for i in range(nBins)]
+        )
+        return pois, pois_plot
+    if label == 'doVBFHotherProd':
+        pois = (
+            ['r_VBFH_otherProd_%s_%d' %(fitName, i) for i in range(nBins)]
+            + ['r_otherProd_otherProd_%s_%d' %(fitName, i) for i in range(nBins)]
+        )
+        pois_plot = ['VBF_%d' %i for i in range(nBins)] + ['other_%d' %i for i in range(nBins)]
+        return pois, pois_plot
+    if label == 'totalMinusVBF':
+        pois = (
+            ['r_totalMinusVBF_%s_%d' %(fitName, i) for i in range(nBins-1)]
+            + ['r_VBFH_totalMinusVBF_%s_%d' %(fitName, nBins-1)]
+        )
+        pois_plot = ['total-VBF_%d' %i for i in range(nBins-1)] + ['VBF_%d' %(nBins-1)]
+        return pois, pois_plot
+    if label == 'allExtrap':
+        pois = (
+            ['r_totalMinusVBF_allExtrap_%s_%d' %(fitName, i) for i in range(nBins-1)]
+            + ['r_VBFH_allExtrap_%s_%d' %(fitName, nBins-1)]
+        )
+        pois_plot = ['total-VBF_%d' %i for i in range(nBins-1)] + ['VBF_%d' %(nBins-1)]
+        return pois, pois_plot
+    pois = [poi_templates[label] %(fitName, i) for i in range(nBins)]
+    pois_plot = ['r_%d' %i for i in range(nBins)]
+    return pois, pois_plot
+
 def PlotCorrelation():
     for physicalModel in PhysicalModels:
         pois = []
         pois_plot = []
-        if 'mass4l' in obsName and physicalModel == 'v2':
+        if opt.DO_VBF:
+            if obsName != 'absdetajj_mjj' or nBins != 4:
+                raise RuntimeError('--doVBF expects "absdetajj vs mjj" to have bins 0-3, but found '+str(nBins)+' bins')
+            pois, pois_plot = get_vbf_pois(physicalModel, get_fit_name(obsName), nBins)
+        elif 'mass4l' in obsName and physicalModel == 'v2':
             pois = ['r4muBin0', 'r4eBin0', 'r2e2muBin0']
             pois_plot += ['$\sigma_{4\mu}$', '$\sigma_{4e}$', '$\sigma_{2e2\mu}$']
         # elif (obsName == 'massZ1' or obsName == 'massZ2' or obsName == 'costhetastar' or obsName == 'D0m' or obsName == 'Dint' or obsName == 'Dcp' or obsName == 'DL1' or obsName == 'DL1') and physicalModel == 'v4':
@@ -117,11 +172,9 @@ def PlotCorrelation():
         else:
             # pois += ['CMS_eff_e']
             # pois_plot += ['eff_e']
-            _obsName = {'pT4l': 'PTH', 'rapidity4l': 'YH', 'pTj1': 'pTj1', 'Nj': 'Nj'}
-            if obsName not in _obsName:
-                _obsName[obsName] = obsName
+            fitName = get_fit_name(obsName)
             for obsBin in range(nBins):
-                pois += ['r_smH_'+_obsName[obsName]+'_'+str(obsBin)]
+                pois += ['r_smH_'+fitName+'_'+str(obsBin)]
                 pois_plot += ['r_'+str(obsBin)]
         if obsName == 'mass4l_zzfloating':
             if physicalModel == 'v3':
@@ -133,10 +186,30 @@ def PlotCorrelation():
 
         pars = od()
         modes = od()
+        fixed_pois = set()
+        if opt.DO_VBF and physicalModel == 'doVBFfix':
+            fitName = get_fit_name(obsName)
+            fixed_pois = set(
+                ['r_VBFH_fix_%s_%d' %(fitName, i) for i in range(nBins-1)]
+                + ['r_otherProd_fix_%s_%d' %(fitName, i) for i in range(nBins-1)]
+            )
 
-        inFile    = ROOT.TFile(path['eos_path']+'combine_files/robustHesse_'+obsName+'_'+physicalModel+'.root','READ')
-        theMatrix = inFile.Get('h_correlation')
-        theList   = inFile.Get('floatParsFinal')
+        fit_path = path['eos_path']+'combine_files/multidimfit_'+obsName+'_'+physicalModel+'.root'
+        inFile = ROOT.TFile(fit_path, 'READ')
+        fitResult = inFile.Get('fit_mdf')
+        if not fitResult:
+            raise RuntimeError('Missing fit_mdf in '+fit_path+'. Rerun RunCorrelation.py.')
+        if fitResult.status() != 0:
+            raise RuntimeError(
+                'Correlation fit %s failed with status %d.'
+                %(physicalModel, fitResult.status())
+            )
+        if fitResult.covQual() < 2:
+            raise RuntimeError(
+                'Correlation fit %s has invalid covariance quality %d.'
+                %(physicalModel, fitResult.covQual())
+            )
+        theList = fitResult.floatParsFinal()
  
         for iPar in range(len(theList)):
             print( theList[iPar].GetName() )
@@ -147,21 +220,25 @@ def PlotCorrelation():
         nPars = len(pars.keys())
         print ('Procesing the following %g parameters:'%nPars)
         for par in pars.keys(): print (par)
-        revPars = {i:name for name,i in pars.items()}
-
-        # theHist = ROOT.TH2F('corr', '', nPars, -0.5, nPars-0.5, nPars, -0.5, nPars-0.5)
         theMap = {}
-        for iBin,iPar in enumerate(pars.values()):
-            for jBin,jPar in enumerate(pars.values()):
-                proc = theMatrix.GetXaxis().GetBinLabel(iPar+1)
-                theVal = theMatrix.GetBinContent(iPar+1,jPar+1)
-                theMap[(revPars[iPar],revPars[jPar])] = theVal
+        for iPar in pars:
+            for jPar in pars:
+                theVal = fitResult.correlation(iPar, jPar)
+                if not math.isfinite(theVal):
+                    raise RuntimeError(
+                        'Correlation fit %s contains non-finite values for %s and %s.'
+                        %(physicalModel, iPar, jPar)
+                    )
+                theMap[(iPar,jPar)] = theVal
 
         rows = []
         for i in pois:
             row = []
             for j in pois:
-                row.append(theMap[(i,j)])
+                if i in fixed_pois or j in fixed_pois:
+                    row.append(1.0 if i == j else 0.0)
+                else:
+                    row.append(theMap[(i,j)])
             rows.append(row)
         #for b in pois:
          #   rows.append([theMap[i] for i in theMap if i[0]==b])
@@ -172,12 +249,14 @@ def PlotCorrelation():
         fig, ax = plt.subplots(figsize = (20, 10))
         ax.text(0., 1.01, r'$\bf{{CMS}}$', fontsize = 20, transform = ax.transAxes)
 
-        ax.text(0.7, 1.01, r'171 fb$^{-1}$ (13.6 TeV)', fontsize = 20, transform = ax.transAxes)
+        ax.text(0.62, 1.01, r'171 fb$^{-1}$ (13.6 TeV)', fontsize = 20, transform = ax.transAxes)
         #ax.text(0.63, 0.9, r'H$\rightarrow$ ZZ', fontsize = 25, transform = ax.transAxes)
         #ax.text(0.55, 0.85, r'm$_{\mathrm{H}}$ = 125.38 GeV', fontsize = 25, transform = ax.transAxes)
 
         #ax.text(0.45, 0.95, VAR_LABELS[obsName]+r' - H$\rightarrow$ ZZ, m$_{\mathrm{H}}$ = 125.38 GeV', fontsize = 12, transform = ax.transAxes)
-        ax.text(0.7, 0.8, VAR_LABELS[obsName], fontsize = 30, transform = ax.transAxes)
+        ax.text(0.58, 0.8, VAR_LABELS[obsName], fontsize = 30, transform = ax.transAxes)
+        if opt.DO_VBF:
+            ax.text(0.62, 0.72, physicalModel, fontsize = 24, transform = ax.transAxes)
 
         mask = np.zeros_like(theMap)
         mask[np.triu_indices_from(mask, k = 1)] = True
@@ -224,10 +303,16 @@ def PlotCorrelation():
         plt.tight_layout()
         plt.close()
 
-obsName = opt.OBSNAME
+if 'vs' in opt.OBSNAME:
+    obsName_tmp = opt.OBSNAME.split(' vs ')
+    obsName = obsName_tmp[0]+'_'+obsName_tmp[1]
+else:
+    obsName = opt.OBSNAME
 
 DataModelName = 'SM_125'
-if obsName.startswith("mass4l"):
+if opt.DO_VBF:
+    PhysicalModels = ['doVBFH', 'doOtherProd', 'doVBFfix', 'doVBFHotherProd', 'totalMinusVBF', 'ggHExtrap', 'ggHFixed', 'allExtrap']
+elif obsName.startswith("mass4l"):
     PhysicalModels = ['v2','v3']
 elif obsName == 'D0m' or obsName == 'Dcp' or obsName == 'D0hp' or obsName == 'Dint' or obsName == 'DL1' or obsName == 'DL1Zg' or obsName == 'costhetaZ1' or obsName == 'costhetaZ2'or obsName == 'costhetastar' or obsName == 'phi' or obsName == 'phistar' or obsName == 'massZ1' or obsName == 'massZ2':
     PhysicalModels = ['v3','v4']

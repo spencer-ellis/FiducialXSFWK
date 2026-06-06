@@ -7,7 +7,8 @@ from argparse import ArgumentParser
 import matplotlib.pyplot as plt
 import mplhep as hep
 import numpy as np
-from matplotlib.ticker import MultipleLocator
+from matplotlib.ticker import AutoMinorLocator, LogLocator, MaxNLocator, MultipleLocator
+from matplotlib.transforms import Bbox
 
 sys.path.append("helperstuff/")
 sys.path.append(os.path.join(os.path.dirname(__file__), "."))
@@ -20,16 +21,18 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "fidXS"))
 SPECIAL_OBS = {}
 SPECIAL_BIN_WIDTH_VARS = {
     "pTj1", "pTj1_zzfloating",
-    "pTj2",
-    "mjj",
-    "absdetajj",
-    "dphijj",
-    "pTHj",
-    "pTHjj",
-    "mHj",
-    "TCjmax",
-    "TBjmax",
+    "pTj2", "pTj2_zzfloating",
+    "mjj", "mjj_zzfloating",
+    "absdetajj", "absdetajj_zzfloating",
+    "dphijj", "dphijj_zzfloating",
+    "pTHj", "pTHj_zzfloating",
+    "pTHjj", "pTHjj_zzfloating",
+    "mHj", "mHj_zzfloating",
+    "TCjmax", "TCjmax_zzfloating",
+    "TBjmax", "TBjmax_zzfloating",
 }
+SPECIAL_BIN_WIDTH_BASE_VARS = {v.replace("_zzfloating", "") for v in SPECIAL_BIN_WIDTH_VARS}
+JET_FIRST_BIN_FRACTION = 1.0 / 9.0
 
 VAR_LABELS = {
     "mass4l": r"m_{4\ell}",
@@ -78,6 +81,24 @@ def get_var_label(variable):
         return r"{" + base_label + r"}^{\text{ZZ floating}}"
 
     return variable
+
+
+def get_base_variable_name(variable):
+    if variable.endswith("_zzfloating"):
+        return variable[:-len("_zzfloating")]
+    return variable
+
+
+def set_jet_display_xlim(variable, bins_plot, cfg):
+    if get_base_variable_name(variable) not in SPECIAL_BIN_WIDTH_BASE_VARS:
+        return
+    first_bin_high = float(bins_plot[1])
+    x_high = float(cfg["x_lim"][1])
+    x_low = (first_bin_high - JET_FIRST_BIN_FRACTION * x_high) / (1.0 - JET_FIRST_BIN_FRACTION)
+    cfg["x_lim"] = [x_low, x_high]
+    cfg["first_bin_center"] = x_low + 0.5 * (first_bin_high - x_low)
+    cfg["last_bin_center"] = float(bins_plot[-2]) + 0.5 * (x_high - float(bins_plot[-2]))
+
 
 LUMI_BY_ERA = {
     "2022": 7.9804,
@@ -182,42 +203,100 @@ DOUBLE_DIFF_CUSTOM_XTICKS = {
 }
 
 PVALUE_MAP = {
-    "mass4l": 0.97,
-    #"mass4l": 0.79, # WITH K1 K2
+    #"mass4l": 0.97, #FINAL
+    "mass4l": 0.84, # WITH K1 K2
+    "pT4l": 0.87, #FINAL
+    "rapidity4l": 0.72, #FINAL
+    "massZ1": 0.87, #FINAL
+    "massZ2": 0.83, #FINAL
+    "costhetaZ1": 0.84, #FINAL
+    "costhetaZ2": 0.28, #FINAL
+    "costhetastar": 0.84, #FINAL
+    "phi": 0.15, #FINAL
+    "phi1": 0.4, #FINAL
+    "pTj1": 0.25, #FINAL
+    "pTj2": 0.99, #FINAL
+    "Nj": 0.99, #FINAL
+    "mjj": 0.99, #FINAL
+    "absdetajj": 0.81, #FINAL
+    "dphijj": 0.98, #FINAL
+    "mHj": 0.42, #FINAL
+    "pTHj": 0.32, #FINAL
+    "pTHjj": 0.79, #FINAL
+    "TCjmax": 0.86, #FINAL
+    "TBjmax": 0.79, #FINAL
+    "rapidity4l_pT4l": 0.33, #FINAL
+    "pT4l_pTHj": 0.15, #FINAL
+    "massZ1_massZ2": 0.63, #FINAL
+    "pTj1_pTj2": 0.89, #FINAL
+    "absdetajj_mjj": 0.72, #FINAL
+    "Nj_pT4l": 0.92, #FINAL
+    "TCjmax_pT4l": 0.92, #FINAL
+    
     "mass4l_zzfloating": 0.97,
-    "pT4l": 0.84,
-    "rapidity4l": 0.72,
-    "massZ1": 0.89,
-    "massZ2": 0.83,
-    "costhetaZ1": 0.81,
-    "costhetaZ2": 0.29,
-    "costhetastar": 0.83,
-    "phi": 0.18,
-    "phi1": 0.46,
-    "pTj1": 0.12,
-    "pTj2": 0.88,
-    "Nj": 0.88,
-    "mjj": 0.95,
-    "absdetajj": 0.64,
-    "dphijj": 0.96,
-    "mHj": 0.44,
-    "pTHj": 0.32,
-    "pTHjj": 0.58,
-    "TCjmax": 0.51,
-    "TBjmax": 0.28,
-    "rapidity4l_pT4l": 0.43,
-    "pT4l_pTHj": 0.37,
-    "massZ1_massZ2": 0.65,
-    "pTj1_pTj2": 0.77,
-    "absdetajj_mjj": 0.48,
-    "Nj_pT4l": 0.85,
-    "TCjmax_pT4l": 0.76,
+    "pT4l_zzfloating": 0.77,
+    "rapidity4l_zzfloating": 0.86,
+    "massZ1_zzfloating": 0.71,
+    "massZ2_zzfloating": 0.87,
+    "costhetaZ1_zzfloating": 0.85,
+    "costhetaZ2_zzfloating": 0.29,
+    "costhetastar_zzfloating": 0.83,
+    "phi_zzfloating": 0.17,
+    "phi1_zzfloating": 0.43,
+    "pTj1_zzfloating": 0.06,
+    "pTj2_zzfloating": 0.68,
+    "Nj_zzfloating": 0.47,
+    "mjj_zzfloating": 0.99,
+    "absdetajj_zzfloating": 0.58,
+    "dphijj_zzfloating": 0.95,
+    "mHj_zzfloating": 0.25,
+    "pTHj_zzfloating": 0.45,
+    "pTHjj_zzfloating": 0.55,
+    "TCjmax_zzfloating": 0.81,
+    "TBjmax_zzfloating": 0.66,
+    "rapidity4l_pT4l_zzfloating": 0.3,
+    "pT4l_pTHj_zzfloating": 0.05,
+    "massZ1_massZ2_zzfloating": 0.52,
+    "pTj1_pTj2_zzfloating": 0.56,
+    "absdetajj_mjj_zzfloating": 0.97,
+    "Nj_pT4l_zzfloating": 0.96,
+    "TCjmax_pT4l_zzfloating": 0.83,
+}
+
+VBF_totalMinusFixed = {
+    "exp_xs": 0.07,
+    "exp_stat_up": 0.06,
+    "exp_stat_down": 0.05,
+    "exp_sys_up": 0.02,
+    "exp_sys_down": 0.01,
+
+    "obs_xs": 0.06,
+    "obs_stat_up": 0.06,
+    "obs_stat_down": 0.05,
+    "obs_sys_up": 0.02,
+    "obs_sys_down": 0.01,
+}
+
+VBF_allExtrap = {
+    "exp_xs": 0.07,
+    "exp_stat_up": 0.09,
+    "exp_stat_down": 0.07,
+    "exp_sys_up": 0.03,
+    "exp_sys_down": 0.01,
+
+    "obs_xs": 0.04,
+    "obs_stat_up": 0.11,
+    "obs_stat_down": 0.04,
+    "obs_sys_up": 0.03,
+    "obs_sys_down": 0.01,
 }
 
 def reorder_legend(handles, labels):
     desired_order = [
         r"Data (stat $\oplus$ sys unc.)",
         "Systematic Uncertainty",
+        "VBF fit (non-VBF fixed)",
+        "VBF fit (all extrapolated fixed)",
         "ggH (NNLOPS + JHUGen + Pythia) + xH",
         "ggH (POWHEG + JHUGen + Pythia) + xH",
         "xH = ttH + VH + VBF (POWHEG + JHUGen + Pythia)",
@@ -432,6 +511,7 @@ def get_bins(variable, cfg):
         return bins_plot, bins_c, np.diff(bins_plot), bin_number
 
     bins_plot = np.array(ggh_xs.Boundaries, dtype=float)
+    set_jet_display_xlim(variable, bins_plot, cfg)
     bins_plot[0] = cfg["x_lim"][0]
     bins_plot[-1] = cfg["x_lim"][-1]
     bins_c = 0.5 * (bins_plot[1:] + bins_plot[:-1])
@@ -779,6 +859,51 @@ def plot_data_main(ax, bins_c, measurement):
     )
 
 
+def plot_vbf_scans(ax, bins_c, bin_w):
+    plt.sca(ax)
+    last_bin_width = bin_w[-1]
+    scans = [
+        (VBF_totalMinusFixed, -0.12, "dimgrey", "VBF fit (non-VBF fixed)"),
+        (VBF_allExtrap, 0.12, "darkgrey", "VBF fit (all extrapolated fixed)"),
+    ]
+
+    for scan, offset, color, label in scans:
+        x = bins_c[-1] + offset * last_bin_width
+        scale = last_bin_width
+        y = scan["obs_xs"] / scale
+        stat_up = scan["obs_stat_up"] / scale
+        stat_down = scan["obs_stat_down"] / scale
+        sys_up = scan["obs_sys_up"] / scale
+        sys_down = scan["obs_sys_down"] / scale
+        total_up = np.hypot(stat_up, sys_up)
+        total_down = np.hypot(stat_down, sys_down)
+
+        plt.errorbar(
+            x,
+            y,
+            yerr=[[total_down], [total_up]],
+            marker="o",
+            linestyle="None",
+            color=color,
+            linewidth=2,
+            ms=5,
+            capsize=4,
+            label=label,
+            zorder=5,
+        )
+        plt.errorbar(
+            x,
+            y,
+            yerr=[[sys_down], [sys_up]],
+            marker="None",
+            linestyle="None",
+            color="red",
+            linewidth=6,
+            capsize=4,
+            zorder=4,
+        )
+
+
 def get_ylabel(variable, cfg, double_diff):
     var_label = get_var_label(cfg["variable"])
     if variable in {"mass4l", "mass4l_zzfloating"}:
@@ -786,6 +911,44 @@ def get_ylabel(variable, cfg, double_diff):
     if double_diff:
         return r"$d^2\sigma_{\text{fid}} / d" + var_label + r"\;" + cfg["y_unit"] + "$"
     return r"$d\sigma_{\text{fid}} / d" + var_label + r"\;" + cfg["y_unit"] + "$"
+
+
+def get_y_lim_top(variable, cfg, args):
+    y_lim_top = cfg.get("y_lim_top")
+    if y_lim_top is None:
+        return None
+    if not args.ZZ or "zzfloating" not in variable:
+        return y_lim_top
+    if get_base_variable_name(variable) == "mass4l":
+        return y_lim_top
+    if get_base_variable_name(variable) == "rapidity4l":
+        return y_lim_top + 1
+    return y_lim_top * 10
+
+
+def style_main_y_ticks(ax, variable, cfg):
+    ax.minorticks_on()
+
+    if cfg["plot_log"]:
+        ax.yaxis.set_major_locator(LogLocator(base=10.0, numticks=8))
+        ax.yaxis.set_minor_locator(LogLocator(base=10.0, subs=np.arange(2, 10), numticks=100))
+    else:
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=6, min_n_ticks=3))
+        ax.yaxis.set_minor_locator(AutoMinorLocator(5))
+
+    ytick_fs = 15 if "zzfloating" in variable else 20
+    ax.yaxis.set_ticks_position("left")
+    ax.tick_params(
+        axis="y",
+        which="major",
+        left=True,
+        right=False,
+        labelleft=True,
+        labelsize=ytick_fs,
+        length=6,
+        width=1.0,
+    )
+    ax.tick_params(axis="y", which="minor", left=True, right=False, length=3, width=0.8)
 
 
 def style_main_panel(ax, variable, cfg, bins_plot, args):
@@ -796,16 +959,16 @@ def style_main_panel(ax, variable, cfg, bins_plot, args):
     if cfg["plot_log"]:
         plt.yscale("log")
 
-    if "y_lim_top" in cfg:
-        plt.ylim(top=cfg["y_lim_top"])
+    y_lim_top = get_y_lim_top(variable, cfg, args)
+    if y_lim_top is not None:
+        plt.ylim(top=y_lim_top)
     if "y_lim_bottom" in cfg:
         plt.ylim(bottom=cfg["y_lim_bottom"])
 
     plt.xlim(bins_plot[0], bins_plot[-1])
     plt.xticks(fontsize=20)
 
-    ytick_fs = 15 if "zzfloating" in variable else 20
-    ax.tick_params(axis="y", labelsize=ytick_fs)
+    style_main_y_ticks(ax, variable, cfg)
 
 
 def plot_ratio_panel(ax, bins_plot, bins_c, bin_w, theory, measurement, variable):
@@ -927,8 +1090,13 @@ def apply_custom_xticks(axis, variable, bins_c, bins_plot):
     }
 
 
-    if variable in custom_map:
-        labels, ticks, vline = custom_map[variable]
+    custom_variable = variable if variable in custom_map else get_base_variable_name(variable)
+    if custom_variable in custom_map:
+        labels, ticks, vline = custom_map[custom_variable]
+        if variable in SPECIAL_BIN_WIDTH_VARS:
+            ticks = list(ticks)
+            ticks[0] = bins_c[0]
+            vline = bins_plot[1]
         axis.set_xticks(ticks)
         axis.set_xticklabels(labels)
         axis.xaxis.set_minor_locator(plt.NullLocator())
@@ -939,8 +1107,9 @@ def apply_custom_xticks(axis, variable, bins_c, bins_plot):
             axis.get_xticklabels()[0].set_ha("right")
         return
 
-    if variable in DOUBLE_DIFF_CUSTOM_XTICKS:
-        labels = DOUBLE_DIFF_CUSTOM_XTICKS[variable]
+    double_diff_variable = variable if variable in DOUBLE_DIFF_CUSTOM_XTICKS else get_base_variable_name(variable)
+    if double_diff_variable in DOUBLE_DIFF_CUSTOM_XTICKS:
+        labels = DOUBLE_DIFF_CUSTOM_XTICKS[double_diff_variable]
         ticks = np.asarray(bins_c[:len(labels)], dtype=float)
 
         axis.set_xlim(bins_plot[0], bins_plot[-1])
@@ -1035,7 +1204,7 @@ def plot_zzfloating_panel(ax, bins_plot, bins_c, bin_w, cfg, var_label):
         print(f"Warning: no ZZ floating ratio points available for {cfg['variable']}")
         plt.hlines(1.0, bins_plot[0], bins_plot[-1], color="gray", linewidth=1.5)
         ax.set_xlim(bins_plot[0], bins_plot[-1])
-        ax.set_ylim(0, 2)
+        ax.set_ylim(0, 5)
         ax.set_ylabel(r"$ZZ/ZZ_{MC}$", fontsize=12, rotation=90, va="center", ha="center", multialignment="center", labelpad=18)
         plt.xlabel(r"$" + var_label + r"$" + cfg["x_unit"], fontsize=20)
         plt.xticks(fontsize=16)
@@ -1068,9 +1237,9 @@ def plot_zzfloating_panel(ax, bins_plot, bins_c, bin_w, cfg, var_label):
     ratio_zz_sys_up = np.sqrt(np.maximum(0, ratio_zz_up**2 - ratio_zz_stat_up**2))
     ratio_zz_sys_dn = np.sqrt(np.maximum(0, ratio_zz_dn**2 - ratio_zz_stat_dn**2))
 
-    for i, (center, value, err_low, err_high, width) in enumerate(
-        zip(panel_centers, ratio_zz, ratio_zz_sys_dn, ratio_zz_sys_up, panel_widths)
-    ):
+    for i, (center, value, err_low, err_high, width) in enumerate(zip(
+        panel_centers, ratio_zz, ratio_zz_sys_dn, ratio_zz_sys_up, panel_widths
+    )):
         plt.hlines(
             value,
             center - 0.45 * width,
@@ -1093,11 +1262,11 @@ def plot_zzfloating_panel(ax, bins_plot, bins_c, bin_w, cfg, var_label):
         ax.axvline(x=b, color="gray", ls="dashed", lw=1, alpha=0.5)
 
     ax.tick_params(axis="y", labelsize=15)
-    ax.set_yticks([0.0, 1.0, 2.0])
-    ax.set_yticklabels(["0", "1", "2"], fontsize=15)
+    ax.set_yticks([0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
+    ax.set_yticklabels(["0", "1", "2", "3", "4", "5"], fontsize=15)
     ax.yaxis.set_minor_locator(MultipleLocator(0.2))
     ax.set_xlim(bins_plot[0], bins_plot[-1])
-    ax.set_ylim(0, 2)
+    ax.set_ylim(0, 5)
     ax.set_ylabel(
     r"$ZZ/ZZ_{MC}$",
     fontsize=12,
@@ -1127,8 +1296,15 @@ def finalize_bottom_axis(axis, variable, cfg):
 def save_plot(fig, cfg, out_suffix):
     out_base = f"{path['plots_path']}PLOTS/{cfg['output_name']}{out_suffix}"
     print(f"Saving plot to: {out_base}.pdf")
-    fig.savefig(f"{out_base}.pdf", bbox_inches="tight", dpi=600)
-    fig.savefig(f"{out_base}.png", bbox_inches="tight", dpi=600)
+    bottom_padding = 2.8
+    fixed_bbox = Bbox.from_bounds(
+        0,
+        -bottom_padding,
+        fig.get_figwidth(),
+        fig.get_figheight() + bottom_padding,
+    )
+    fig.savefig(f"{out_base}.pdf", bbox_inches=fixed_bbox, dpi=600)
+    fig.savefig(f"{out_base}.png", bbox_inches=fixed_bbox, dpi=600)
     plt.close(fig)
 
 
@@ -1158,6 +1334,8 @@ def main():
             apply_cms_label(current_config, args)
             plot_data_main(frame1, bins_c, measurement)
             plot_theory_main(frame1, bins_plot, bins_c, bin_w, theory)
+            if variable == "absdetajj_mjj":
+                plot_vbf_scans(frame1, bins_c, bin_w)
             style_main_panel(frame1, variable, current_config, bins_plot, args)
 
             pval = PVALUE_MAP.get(variable)

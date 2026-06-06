@@ -636,7 +636,7 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
             file.write('-\n') # ZX
 
     # BR uncertainties 
-    ''' 
+    #''' 
     if physicalModel == 'v3':
         # In v3, apply BR uncertainties only to the corresponding final state
         file.write('BR_hzz4e lnN ')
@@ -689,7 +689,7 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
             else:
                 file.write('- ')
         file.write('- - -\n')
-    '''
+    #'''
 
     # Lepton efficiency
 
