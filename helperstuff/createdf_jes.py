@@ -15,9 +15,23 @@ from paths import path
 
 signals_original = ['ggH125', 'VBFH125', 'ttH125', 'WminusH125', 'WplusH125', 'ZH125']
 bkgs = ['ggTo2e2mu_Contin_MCFM701', 'ggTo2e2tau_Contin_MCFM701', 'ggTo2mu2tau_Contin_MCFM701', 'ggTo4e_Contin_MCFM701', 'ggTo4mu_Contin_MCFM701', 'ggTo4tau_Contin_MCFM701', 'ZZTo4l'] 
-jesVars = ["pTj1", "pTj2", "Nj", "mjj", "absdetajj", "dphijj", "mHj", "pTHj", "pTHjj", "mHj", "TBjMax", "TCjMax"]
+jesVars = ["pTj1", "pTj2", "Nj", "mjj", "absdetajj", "dphijj", "mHj", "pTHj", "pTHjj", "TBjmax", "TCjmax", "TBjMax", "TCjMax", "Nj_2p5", "mjj_2p5", "absdetajj_2p5", "TCjmax_2p5", "TCjMax_2p5", "pTj1_2p5", "Nj_4p7", "mjj_4p7", "absdetajj_4p7", "TCjmax_4p7", "TCjMax_4p7", "pTj1_4p7"]
 key = 'ZZTree/candTree'
 #key = 'Events'
+
+
+def jesNameForYear(name, year):
+    """Replace only a trailing ``_year`` placeholder, preserving underscores."""
+    if not name.endswith('_year'):
+        return name
+
+    year_to_use = str(year)
+    if year_to_use == '2023preBPix':
+        year_to_use = '2023'
+    elif year_to_use == '2023postBPix':
+        year_to_use = '2023BPix'
+
+    return name[:-len('_year')] + '_' + year_to_use
 
 
 # ------------------------------- FUNCTIONS TO GENERATE DATAFRAMES ----------------------------------------------------
@@ -67,7 +81,10 @@ def prepareTrees(year):
 #             fname += '/'+bkg+'1/'+bkg+'1_reducedTree_MC_'+str(year)+'.root'
 #         else:
 #             fname += '/'+bkg+'/'+bkg+'_reducedTree_MC_'+str(year)+'.root'
-        d_bkg[bkg] = uproot.open(fname)[key]
+        try:
+            d_bkg[bkg] = uproot.open(fname)[key]
+        except Exception as exc:
+            raise RuntimeError('Required background file/tree could not be read for %s %s: %s (%s)' % (year, bkg, fname, exc))
 
     if year!='2016pre':
         for signal in signals_original:
@@ -149,7 +166,6 @@ def xsecs(year):
         print(signal, xsec_sig[signal])
 
     for bkg in bkgs:
-        
         df = d_bkg[bkg].arrays(['overallEventWeight', 'PUWeight', 'genHEPMCweight'], library="pd") # spencer
         total_weight = df['overallEventWeight'] # spencer
         puweight = df['PUWeight'] # spencer
@@ -194,7 +210,10 @@ def generators(year):
         fname = path['eos_path_sig']+year+"_MC/"+bkg+"/ZZ4lAnalysis_SKIMMED.root"
         #fname = f"/eos/cms/store/group/phys_higgs/cmshzz4l/cjlst/HIG-25-015/RunIII_byZ1Z2/031125/{year}_MC/{bkg}/ZZ4lAnalysis_SKIMMED_addJES.root"
 
-        gen_bkg[bkg] = uproot.open(fname)["Counters"].values()[39] # spencer
+        try:
+            gen_bkg[bkg] = uproot.open(fname)["Counters"].values()[39] # spencer
+        except Exception as exc:
+            raise RuntimeError('Required Counters histogram could not be read for %s %s: %s (%s)' % (year, bkg, fname, exc))
         
     if year!='2016pre':
         for signal in signals_original:
@@ -215,9 +234,12 @@ def generators(year):
 
     return gen_sig, gen_bkg
 
-def createDataframe(jesNames, year, dataFrame,isBkg,gen,xsec,signal,lumi,obs_reco,obs_reco_2nd='None'):
+def createDataframe(jesNames, year, dataFrame,isBkg,gen,xsec,signal,lumi,obs_reco,obs_reco_2nd='None', include_pileup=False):
 
     b_sig = ['overallEventWeight', 'Z1Flav', 'Z2Flav', 'ZZMass' ]
+
+    if include_pileup:
+        b_sig.extend(['PUWeight', 'PUWeightUp', 'PUWeightDown'])
 
 
     if signal == 'ggH125':
@@ -231,9 +253,9 @@ def createDataframe(jesNames, year, dataFrame,isBkg,gen,xsec,signal,lumi,obs_rec
     #    b_sig.append('KFactor_QCD_ggZZ_Nominal')
 
     if obs_reco == 'ZZMass':
-        b_sig.pop('ZZMass')
-    if obs_reco_2nd == 'ZZMass':
-        b_sig.pop('ZZMass')
+        b_sig.remove('ZZMass')
+    if obs_reco_2nd == 'ZZMass' and 'ZZMass' in b_sig:
+        b_sig.remove('ZZMass')
 
     b_sig.append(obs_reco)
     if obs_reco_2nd != 'None': b_sig.append(obs_reco_2nd)
@@ -244,18 +266,7 @@ def createDataframe(jesNames, year, dataFrame,isBkg,gen,xsec,signal,lumi,obs_rec
     for name in jesNames:
 
         if obs_reco in jesVars:
-            # Reset year for each iteration
-            year_to_use = year_original
-            name_to_use = name
-            
-            if "year" in name:
-                if year_to_use == "2023preBPix":
-                    year_to_use = "2023"
-                if year_to_use == "2023postBPix":
-                    year_to_use = "2023BPix"
-                    
-                name1st = name.split("_")[0]
-                name_to_use = name1st + "_" + year_to_use
+            name_to_use = jesNameForYear(name, year_original)
 
             b_sig.append(obs_reco+"_"+name_to_use+"_ScaleUp")
             b_sig.append(obs_reco+"_"+name_to_use+"_ScaleDn")
@@ -263,21 +274,14 @@ def createDataframe(jesNames, year, dataFrame,isBkg,gen,xsec,signal,lumi,obs_rec
         if obs_reco_2nd != 'None':
 
             if obs_reco_2nd in jesVars:
-                # Reset year for each iteration
-                year_to_use = year_original
-                name_to_use = name
-                
-                if "year" in name:
-                    if year_to_use == "2023preBPix":
-                        year_to_use = "2023"
-                    if year_to_use == "2023postBPix":
-                        year_to_use = "2023BPix"
-                        
-                    name1st = name.split("_")[0]
-                    name_to_use = name1st + "_" + year_to_use
+                name_to_use = jesNameForYear(name, year_original)
 
                 b_sig.append(obs_reco_2nd+"_"+name_to_use+"_ScaleUp")
                 b_sig.append(obs_reco_2nd+"_"+name_to_use+"_ScaleDn")
+
+    missing_branches = sorted(set(b_sig) - set(dataFrame.keys()))
+    if missing_branches:
+        raise RuntimeError('Required branches missing for %s %s: %s' % (year, signal, ', '.join(missing_branches)))
 
     df_np = dataFrame.arrays(library="np")
     df = pd.DataFrame({var: df_np[var] for var in b_sig})
@@ -305,7 +309,7 @@ def createDataframe(jesNames, year, dataFrame,isBkg,gen,xsec,signal,lumi,obs_rec
     return df
 
 # Set up data frames
-def dataframes(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd):
+def dataframes(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd, include_pileup=False):
     if year == '2016pre':
         lumi_bkg = 19.52
     elif year == '2016post':
@@ -342,18 +346,18 @@ def dataframes(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd):
     for bkg in bkgs:
         print ('Processing', bkg, year)
         if doubleDiff:
-            d_df_bkg[bkg] = createDataframe(jesNames, year, d_bkg[bkg],True,gen_bkg[bkg],xsec_bkg[bkg],bkg,lumi_bkg,obs_reco,obs_reco_2nd)
+            d_df_bkg[bkg] = createDataframe(jesNames, year, d_bkg[bkg],True,gen_bkg[bkg],xsec_bkg[bkg],bkg,lumi_bkg,obs_reco,obs_reco_2nd,include_pileup)
         else:
-            d_df_bkg[bkg] = createDataframe(jesNames, year, d_bkg[bkg],True,gen_bkg[bkg],xsec_bkg[bkg],bkg,lumi_bkg,obs_reco)
+            d_df_bkg[bkg] = createDataframe(jesNames, year, d_bkg[bkg],True,gen_bkg[bkg],xsec_bkg[bkg],bkg,lumi_bkg,obs_reco,include_pileup=include_pileup)
         print ('Background created')
 
     if year!='2016pre':
         for signal in signals_original:
             print ('Processing', signal, year)
             if doubleDiff:
-                d_df_sig[signal] = createDataframe(jesNames, year, d_sig[signal],False,gen_sig[signal],xsec_sig[signal],signal,lumi_sig,obs_reco,obs_reco_2nd)
+                d_df_sig[signal] = createDataframe(jesNames, year, d_sig[signal],False,gen_sig[signal],xsec_sig[signal],signal,lumi_sig,obs_reco,obs_reco_2nd,include_pileup)
             else:
-                d_df_sig[signal] = createDataframe(jesNames, year, d_sig[signal],False,gen_sig[signal],xsec_sig[signal],signal,lumi_sig,obs_reco)
+                d_df_sig[signal] = createDataframe(jesNames, year, d_sig[signal],False,gen_sig[signal],xsec_sig[signal],signal,lumi_sig,obs_reco,include_pileup=include_pileup)
             print ('Signal created')
 
 
@@ -361,8 +365,8 @@ def dataframes(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd):
 
 
 # Merge WplusH125 and WminusH125
-def skim_df(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd = ''):
-    d_df_sig, d_df_bkg = dataframes(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd)
+def skim_df(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd = '', include_pileup=False):
+    d_df_sig, d_df_bkg = dataframes(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd, include_pileup)
     d_skim_sig = {}
     d_skim_bkg = {}
 

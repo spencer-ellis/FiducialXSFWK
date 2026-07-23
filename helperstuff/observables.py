@@ -68,6 +68,72 @@ observables = {
 'TBjmax': {
      'obs_reco': 'TBjMax',
      'obs_gen':  'GENTBjMax'},
+'Nj_2p5':
+    {'obs_reco': 'Nj_2p5',
+    'obs_gen': 'GENNj_2p5'},
+'Nj_4p7':
+    {'obs_reco': 'Nj_4p7',
+    'obs_gen': 'GENNj_4p7'},
+'pTj1_2p5':
+    {'obs_reco': 'pTj1_2p5',
+    'obs_gen': 'GENpTj1_2p5'},
+'pTj1_4p7':
+    {'obs_reco': 'pTj1_4p7',
+    'obs_gen': 'GENpTj1_4p7'},
+'pTHj_2p5':
+    {'obs_reco': 'pTHj_2p5',
+    'obs_gen': 'GENpTHj_2p5'},
+'pTHj_4p7':
+    {'obs_reco': 'pTHj_4p7',
+    'obs_gen': 'GENpTHj_4p7'},
+'mHj_2p5':
+    {'obs_reco': 'mHj_2p5',
+    'obs_gen': 'GENmHj_2p5'},
+'mHj_4p7':
+    {'obs_reco': 'mHj_4p7',
+    'obs_gen': 'GENmHj_4p7'},
+'pTj2_2p5':
+    {'obs_reco': 'pTj2_2p5',
+    'obs_gen': 'GENpTj2_2p5'},
+'pTj2_4p7':
+    {'obs_reco': 'pTj2_4p7',
+    'obs_gen': 'GENpTj2_4p7'},
+'mjj_2p5':
+    {'obs_reco': 'mjj_2p5',
+    'obs_gen': 'GENmjj_2p5'},
+'mjj_4p7':
+    {'obs_reco': 'mjj_4p7',
+    'obs_gen': 'GENmjj_4p7'},
+'absdetajj_2p5':
+    {'obs_reco': 'absdetajj_2p5',
+    'obs_gen': 'GENabsdetajj_2p5'},
+'absdetajj_4p7':
+    {'obs_reco': 'absdetajj_4p7',
+    'obs_gen': 'GENabsdetajj_4p7'},
+'dphijj_2p5':
+    {'obs_reco': 'dphijj_2p5',
+    'obs_gen': 'GENdphijj_2p5'},
+'dphijj_4p7':
+    {'obs_reco': 'dphijj_4p7',
+    'obs_gen': 'GENdphijj_4p7'},
+'pTHjj_2p5':
+    {'obs_reco': 'pTHjj_2p5',
+    'obs_gen': 'GENpTHjj_2p5'},
+'pTHjj_4p7':
+    {'obs_reco': 'pTHjj_4p7',
+    'obs_gen': 'GENpTHjj_4p7'},
+'TCjmax_2p5': {
+     'obs_reco': 'TCjMax_2p5',
+     'obs_gen':  'GENTCjMax_2p5'},
+'TCjmax_4p7': {
+     'obs_reco': 'TCjMax_4p7',
+     'obs_gen':  'GENTCjMax_4p7'},
+'TBjmax_2p5': {
+     'obs_reco': 'TBjMax_2p5',
+     'obs_gen':  'GENTBjMax_2p5'},
+'TBjmax_4p7': {
+     'obs_reco': 'TBjMax_4p7',
+     'obs_gen':  'GENTBjMax_4p7'},
 'D0m':
     {'obs_reco': 'D0m',
     'obs_gen': 'GEN_D0m'},
@@ -109,6 +175,56 @@ observables = {
     'obs_reco_2nd': 'pTHj',
     'obs_gen': 'GENpT4l',
     'obs_gen_2nd': 'GENpTHj'},
+'pTj1_2p5 vs pTj2_2p5':
+    {'obs_reco': 'pTj1_2p5',
+    'obs_reco_2nd': 'pTj2_2p5',
+    'obs_gen': 'GENpTj1_2p5',
+    'obs_gen_2nd': 'GENpTj2_2p5'},
+'pTj1_4p7 vs pTj2_4p7':
+    {'obs_reco': 'pTj1_4p7',
+    'obs_reco_2nd': 'pTj2_4p7',
+    'obs_gen': 'GENpTj1_4p7',
+    'obs_gen_2nd': 'GENpTj2_4p7'},
+'pT4l vs pTHj_2p5':
+    {'obs_reco': 'ZZPt',
+    'obs_reco_2nd': 'pTHj_2p5',
+    'obs_gen': 'GENpT4l',
+    'obs_gen_2nd': 'GENpTHj_2p5'},
+'pT4l vs pTHj_4p7':
+    {'obs_reco': 'ZZPt',
+    'obs_reco_2nd': 'pTHj_4p7',
+    'obs_gen': 'GENpT4l',
+    'obs_gen_2nd': 'GENpTHj_4p7'},
+'TCjmax_2p5 vs pT4l':
+    {'obs_reco_2nd': 'ZZPt',
+    'obs_gen_2nd': 'GENpT4l',
+    'obs_reco': 'TCjMax_2p5',
+    'obs_gen': 'GENTCjMax_2p5'},
+'TCjmax_4p7 vs pT4l':
+    {'obs_reco_2nd': 'ZZPt',
+    'obs_gen_2nd': 'GENpT4l',
+    'obs_reco': 'TCjMax_4p7',
+    'obs_gen': 'GENTCjMax_4p7'},
+'absdetajj_2p5 vs mjj_2p5':
+    {'obs_reco': 'absdetajj_2p5',
+     'obs_gen': 'GENabsdetajj_2p5',
+     'obs_reco_2nd': 'mjj_2p5',
+     'obs_gen_2nd': 'GENmjj_2p5'},
+'absdetajj_4p7 vs mjj_4p7':
+    {'obs_reco': 'absdetajj_4p7',
+     'obs_gen': 'GENabsdetajj_4p7',
+     'obs_reco_2nd': 'mjj_4p7',
+     'obs_gen_2nd': 'GENmjj_4p7'},
+'Nj_2p5 vs pT4l':
+    {'obs_reco_2nd': 'ZZPt',
+     'obs_gen_2nd': 'GENpT4l',
+     'obs_reco': 'Nj_2p5',
+     'obs_gen': 'GENNj_2p5'},
+'Nj_4p7 vs pT4l':
+    {'obs_reco_2nd': 'ZZPt',
+     'obs_gen_2nd': 'GENpT4l',
+     'obs_reco': 'Nj_4p7',
+     'obs_gen': 'GENNj_4p7'},
 'massZ1 vs massZ2':
     {'obs_reco': 'Z1Mass',
     'obs_reco_2nd': 'Z2Mass',

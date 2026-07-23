@@ -263,34 +263,6 @@ PVALUE_MAP = {
     "TCjmax_pT4l_zzfloating": 0.83,
 }
 
-VBF_totalMinusFixed = {
-    "exp_xs": 0.07,
-    "exp_stat_up": 0.06,
-    "exp_stat_down": 0.05,
-    "exp_sys_up": 0.02,
-    "exp_sys_down": 0.01,
-
-    "obs_xs": 0.06,
-    "obs_stat_up": 0.06,
-    "obs_stat_down": 0.05,
-    "obs_sys_up": 0.02,
-    "obs_sys_down": 0.01,
-}
-
-VBF_allExtrap = {
-    "exp_xs": 0.07,
-    "exp_stat_up": 0.09,
-    "exp_stat_down": 0.07,
-    "exp_sys_up": 0.03,
-    "exp_sys_down": 0.01,
-
-    "obs_xs": 0.04,
-    "obs_stat_up": 0.11,
-    "obs_stat_down": 0.04,
-    "obs_sys_up": 0.03,
-    "obs_sys_down": 0.01,
-}
-
 def reorder_legend(handles, labels):
     desired_order = [
         r"Data (stat $\oplus$ sys unc.)",
@@ -859,29 +831,32 @@ def plot_data_main(ax, bins_c, measurement):
     )
 
 
-def plot_vbf_scans(ax, bins_c, bin_w):
+def plot_vbf_scans(ax, bins_c, bin_w, cfg):
     plt.sca(ax)
-    last_bin_width = bin_w[-1]
+    scan_data = cfg.get("vbf_scans", {})
     scans = [
-        (VBF_totalMinusFixed, -0.12, "dimgrey", "VBF fit (non-VBF fixed)"),
-        (VBF_allExtrap, 0.12, "darkgrey", "VBF fit (all extrapolated fixed)"),
+        ("total_minus_vbf", -0.12, "dimgrey", "VBF fit (non-VBF fixed)"),
+        ("all_extrap", 0.12, "darkgrey", "VBF fit (all extrapolated fixed)"),
     ]
 
-    for scan, offset, color, label in scans:
-        x = bins_c[-1] + offset * last_bin_width
-        scale = last_bin_width
-        y = scan["obs_xs"] / scale
-        stat_up = scan["obs_stat_up"] / scale
-        stat_down = scan["obs_stat_down"] / scale
-        sys_up = scan["obs_sys_up"] / scale
-        sys_down = scan["obs_sys_down"] / scale
-        total_up = np.hypot(stat_up, sys_up)
-        total_down = np.hypot(stat_down, sys_down)
+    for key, offset, color, label in scans:
+        scan = scan_data.get(key)
+        if not scan:
+            raise KeyError(f"Missing vbf_scans.{key} in the plotting configuration")
+
+        x = bins_c + offset * bin_w
+        y = np.asarray(scan["xs"], dtype=float) / bin_w
+        total_up = np.asarray(scan["err_up"], dtype=float) / bin_w
+        total_down = np.asarray(scan["err_down"], dtype=float) / bin_w
+        stat_up = np.asarray(scan["stat_up"], dtype=float) / bin_w
+        stat_down = np.asarray(scan["stat_down"], dtype=float) / bin_w
+        sys_up = np.sqrt(np.maximum(0.0, total_up**2 - stat_up**2))
+        sys_down = np.sqrt(np.maximum(0.0, total_down**2 - stat_down**2))
 
         plt.errorbar(
             x,
             y,
-            yerr=[[total_down], [total_up]],
+            yerr=[total_down, total_up],
             marker="o",
             linestyle="None",
             color=color,
@@ -894,7 +869,7 @@ def plot_vbf_scans(ax, bins_c, bin_w):
         plt.errorbar(
             x,
             y,
-            yerr=[[sys_down], [sys_up]],
+            yerr=[sys_down, sys_up],
             marker="None",
             linestyle="None",
             color="red",
@@ -1335,7 +1310,7 @@ def main():
             plot_data_main(frame1, bins_c, measurement)
             plot_theory_main(frame1, bins_plot, bins_c, bin_w, theory)
             if variable == "absdetajj_mjj":
-                plot_vbf_scans(frame1, bins_c, bin_w)
+                plot_vbf_scans(frame1, bins_c, bin_w, current_config)
             style_main_panel(frame1, variable, current_config, bins_plot, args)
 
             pval = PVALUE_MAP.get(variable)

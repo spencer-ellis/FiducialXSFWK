@@ -26,8 +26,8 @@ if [[ "$data_type" != "MC" && "$data_type" != "Data" ]]; then
 fi
 
 # Define paths
-#base_path="/eos/cms/store/group/phys_higgs/cmshzz4l/cjlst/HIG-25-015/RunIII_byZ1Z2/Moriond26_JES/"
-base_path="/eos/home-s/sellissp/HZZ/SAMPLES/"
+base_path="/eos/cms/store/group/phys_higgs/cmshzz4l/cjlst/HIG-25-015/RunIII_byZ1Z2/Moriond26_JES/"
+#base_path="/eos/home-s/sellissp/HZZ/SAMPLES/"
 full_path="$base_path/${subdir}_${data_type}"
 
 # Check directory
@@ -39,10 +39,12 @@ fi
 # ----- CASE 1: MC -----
 if [ "$data_type" == "MC" ]; then
     sample_list="$full_path/sampleList.txt"
-
+    #sample_list="$full_path/sampleList_2.txt"
+    #sample_list="$full_path/sampleList_3.txt"
+    
     echo "Generating sample list for MC (excluding *Chunk*)..."
-    #find "$full_path" -mindepth 1 -maxdepth 1 -type d ! -name '*Chunk*' -exec basename {} \; | sort > "$sample_list"
-    find "$full_path" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort > "$sample_list"
+    find "$full_path" -mindepth 1 -maxdepth 1 -type d ! -name '*Chunk*' -exec basename {} \; | sort > "$sample_list"
+    #find "$full_path" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort > "$sample_list"
     echo "Sample list has $(wc -l < "$sample_list") entries."
     echo "Starting Run3Skimmer processing for MC..."
 
@@ -79,7 +81,11 @@ else
         year="2023"
         data_files=("Data_eraC_preBPix.root" "Data_eraD_postBPix.root")
     elif [[ "$subdir" == *"2024"* ]]; then
-	sample_list="$full_path/sampleList4.txt"
+
+	sample_list="$full_path/sampleList_1.txt"
+	#sample_list="$full_path/sampleList_2.txt"
+	#sample_list="$full_path/sampleList_3.txt"
+	
 	#find "$full_path" -mindepth 1 -maxdepth 1 -type d ! -name '*Chunk*' -exec basename {} \; | sort > "$sample_list"
 	echo "Sample list has $(wc -l < "$sample_list") entries."
 	echo "Starting Run3Skimmer processing for 2024 Data..."

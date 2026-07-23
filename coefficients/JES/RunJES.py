@@ -17,7 +17,21 @@ from tabulate import tabulate
 print('Welcome in RunJES!')
 
 jesNames = ['Absolute', 'Absolute_year', 'BBEC1', 'BBEC1_year', 'EC2', 'EC2_year', 'FlavorQCD', 'HF', 'HF_year', 'RelativeBal', 'RelativeSample_year']
-jesVars = ["pTj1", "pTj2", "Nj", "mjj", "absdetajj", "dphijj", "mHj", "pTHj", "pTHjj", "mHj", "TBjmax", "TCjmax", "TBjMax", "TCjMax"]
+jesVars = ["pTj1", "pTj2", "Nj", "mjj", "absdetajj", "dphijj", "mHj", "pTHj", "pTHjj", "TBjmax", "TCjmax", "TBjMax", "TCjMax", "Nj_2p5", "mjj_2p5", "absdetajj_2p5", "TCjmax_2p5", "TCjMax_2p5", "pTj1_2p5", "Nj_4p7", "mjj_4p7", "absdetajj_4p7", "TCjmax_4p7", "TCjMax_4p7", "pTj1_4p7"]
+
+
+def jesNameForYear(name, year):
+    """Replace only a trailing ``_year`` placeholder, preserving underscores."""
+    if not name.endswith('_year'):
+        return name
+
+    year_to_use = str(year)
+    if year_to_use == '2023preBPix':
+        year_to_use = '2023'
+    elif year_to_use == '2023postBPix':
+        year_to_use = '2023BPix'
+
+    return name[:-len('_year')] + '_' + year_to_use
 
 def parseOptions():
 
@@ -34,7 +48,7 @@ def parseOptions():
     parser.add_option('',   '--verbose', action='store_true', dest='VERBOSE', default=False, help='print values')
     parser.add_option('',   '--AC', action='store_true', dest='AC', default=False, help='AC samples')
     parser.add_option('',   '--m4lLower',  dest='LOWER_BOUND',  type='int',default=105.0,   help='Lower bound for m4l')
-    parser.add_option('',   '--m4lUpper',  dest='UPPER_BOUND',  type='int',default=140.0,   help='Upper bound for m4l')
+    parser.add_option('',   '--m4lUpper',  dest='UPPER_BOUND',  type='int',default=160.0,   help='Upper bound for m4l')
     # store options and arguments as global variables
     global opt, args
     (opt, args) = parser.parse_args()
@@ -85,18 +99,7 @@ def getJes(channel, m4l_low, m4l_high, obs_reco, obs_gen, obs_bins, recobin, obs
     year_original = year
     
     for i in jesNames:
-        # Reset year for each iteration
-        year_to_use = year_original
-        i_to_use = i
-
-        if year_to_use == "2023preBPix":
-            year_to_use = "2023"
-        if year_to_use == "2023postBPix":
-            year_to_use = "2023BPix"
-
-        if "year" in i_to_use:
-            name1st = i_to_use.split("_")[0]
-            i_to_use = name1st + "_" + str(year_to_use)
+        i_to_use = jesNameForYear(i, year_original)
 
         if doubleDiff:
             processBin = '_'+i_to_use+'_'+channel+'_'+str(year_original)+'_'+obs_reco+'_'+obs_reco_2nd+'_recobin'+str(recobin)

@@ -5,8 +5,8 @@ source setup.sh
 cmsenv
 cd FiducialXSFWK/coefficients
 
-obsName="${1//_/' vs '}"
-#obsName="$1"
+#obsName="${1//_/' vs '}"
+obsName="$1"
 year="$2"
 
 python3 RunCoefficients.py --obsName "$obsName" --year "$year" --split --merge
@@ -18,5 +18,5 @@ python3 RunCoefficients.py --obsName "$obsName" --year "$year" --split --merge -
 python3 RunCoefficients.py --obsName "$obsName" --year "$year" --split --merge --interpolation --hypothesis "26"
 python3 RunCoefficients.py --obsName "$obsName" --year "$year" --split --merge --nnlops --interpolation --hypothesis "26"
 
-python3 RunInterpolation.py --obsName "$obsName" --year "$year"
-python3 RunInterpolation.py --obsName "$obsName" --year "$year" --nnlops
+python3 RunInterpolation.py --obsName "$obsName" --year "$year" --extrapMass "125.07"
+python3 RunInterpolation.py --obsName "$obsName" --year "$year" --nnlops --extrapMass "125.07"

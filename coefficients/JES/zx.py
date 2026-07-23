@@ -216,8 +216,9 @@ def doZX(year, g_FR_mu_EB, g_FR_mu_EE, g_FR_e_EB, g_FR_e_EE, obs_reco,obs_reco_2
                    'helcosthetaZ1','helcosthetaZ2', 'helphi', 'costhetastar', 'phistarZ1', 'ZZPhi',
                    'pTj1', 'pTj2', 'absdetajj',
                    'JetEta','JetPhi','JetMass',
-                   'pTHj', 'pTHjj', 'mHj', 'mHjj', 'detajj', 'dphijj', 'mjj', 'njets_pt30_eta4p7', 'ZZy',
-                   'D0m', 'Dcp', 'D0hp', 'Dint', 'DL1', 'DL1int', 'DL1Zg', 'DL1Zgint', 'TCjmax', 'TBjmax']
+                   'pTHj', 'pTHjj', 'mHj', 'detajj', 'dphijj', 'mjj', 'njets_pt30_eta4p7', 'ZZy',
+                   'D0m', 'Dcp', 'D0hp', 'Dint', 'DL1', 'DL1int', 'DL1Zg', 'DL1Zgint', 'TCjmax', 'TBjmax',
+                   'Nj_2p5', 'mjj_2p5', 'absdetajj_2p5', 'TCjmax_2p5', 'TCjMax_2p5', 'pTj1_2p5', 'Nj_4p7', 'mjj_4p7', 'absdetajj_4p7', 'TCjmax_4p7', 'TCjMax_4p7', 'pTj1_4p7']
 
     keyZX = 'CRZLL'
 
@@ -291,6 +292,36 @@ def doZX(year, g_FR_mu_EB, g_FR_mu_EE, g_FR_e_EB, g_FR_e_EE, obs_reco,obs_reco_2
         if obs_reco == 'TBjmax' or obs_reco_2nd == 'TBjmax':
             dfZX['TBjmax_jesup_'+i] = [tb(row[0],row[1],row[2],row[3],row[4]) for row in dfZX[['JetPt_JESUp_'+i,'JetEta','JetPhi','JetMass','Higgs']].values]
             dfZX['TBjmax_jesdn_'+i] = [tb(row[0],row[1],row[2],row[3],row[4]) for row in dfZX[['JetPt_JESDown_'+i,'JetEta','JetPhi','JetMass','Higgs']].values]
+        if obs_reco == "Nj_2p5" or obs_reco_2nd == "Nj_2p5":
+            dfZX['Nj_2p5_jesup_'+i] = [count_jets(row[0],row[1],row[2],row[3]) for row in dfZX[['JetPt_JESUp_'+i,'JetEta','JetPhi','JetMass']].values]
+            dfZX['Nj_2p5_jesdn_'+i] = [count_jets(row[0],row[1],row[2],row[3]) for row in dfZX[['JetPt_JESDown_'+i,'JetEta','JetPhi','JetMass']].values]
+        if obs_reco == "Nj_4p7" or obs_reco_2nd == "Nj_4p7":
+            dfZX['Nj_4p7_jesup_'+i] = [count_jets(row[0],row[1],row[2],row[3]) for row in dfZX[['JetPt_JESUp_'+i,'JetEta','JetPhi','JetMass']].values]
+            dfZX['Nj_4p7_jesdn_'+i] = [count_jets(row[0],row[1],row[2],row[3]) for row in dfZX[['JetPt_JESDown_'+i,'JetEta','JetPhi','JetMass']].values]
+        if obs_reco == "mjj_2p5" or obs_reco_2nd == "mjj_2p5":
+            dfZX['mjj_2p5_jesup_'+i] = [(j1+j2).M() if j2.Pt()>0 else -1 for j1,j2 in zip(dfZX['j1_jesup_'+i],dfZX['j2_jesup_'+i])]
+            dfZX['mjj_2p5_jesdn_'+i] = [(j1+j2).M() if j2.Pt()>0 else -1 for j1,j2 in zip(dfZX['j1_jesdn_'+i],dfZX['j2_jesdn_'+i])]
+        if obs_reco == "mjj_4p7" or obs_reco_2nd == "mjj_4p7":
+            dfZX['mjj_4p7_jesup_'+i] = [(j1+j2).M() if j2.Pt()>0 else -1 for j1,j2 in zip(dfZX['j1_jesup_'+i],dfZX['j2_jesup_'+i])]
+            dfZX['mjj_4p7_jesdn_'+i] = [(j1+j2).M() if j2.Pt()>0 else -1 for j1,j2 in zip(dfZX['j1_jesdn_'+i],dfZX['j2_jesdn_'+i])]
+        if obs_reco == "absdetajj_2p5" or obs_reco_2nd == "absdetajj_2p5":
+            dfZX['absdetajj_2p5_jesup_'+i] = [abs(j1.Eta()-j2.Eta()) if j2.Pt()>0 else -1 for j1,j2 in zip(dfZX['j1_jesup_'+i],dfZX['j2_jesup_'+i])]
+            dfZX['absdetajj_2p5_jesdn_'+i] = [abs(j1.Eta()-j2.Eta()) if j2.Pt()>0 else -1 for j1,j2 in zip(dfZX['j1_jesdn_'+i],dfZX['j2_jesdn_'+i])]
+        if obs_reco == "absdetajj_4p7" or obs_reco_2nd == "absdetajj_4p7":
+            dfZX['absdetajj_4p7_jesup_'+i] = [abs(j1.Eta()-j2.Eta()) if j2.Pt()>0 else -1 for j1,j2 in zip(dfZX['j1_jesup_'+i],dfZX['j2_jesup_'+i])]
+            dfZX['absdetajj_4p7_jesdn_'+i] = [abs(j1.Eta()-j2.Eta()) if j2.Pt()>0 else -1 for j1,j2 in zip(dfZX['j1_jesdn_'+i],dfZX['j2_jesdn_'+i])]
+        if obs_reco == "TCjmax_2p5" or obs_reco_2nd == "TCjmax_2p5":
+            dfZX['TCjmax_2p5_jesup_'+i] = [tc(row[0],row[1],row[2],row[3],row[4]) for row in dfZX[['JetPt_JESUp_'+i,'JetEta','JetPhi','JetMass','Higgs']].values]
+            dfZX['TCjmax_2p5_jesdn_'+i] = [tc(row[0],row[1],row[2],row[3],row[4]) for row in dfZX[['JetPt_JESDown_'+i,'JetEta','JetPhi','JetMass','Higgs']].values]
+        if obs_reco == "TCjmax_4p7" or obs_reco_2nd == "TCjmax_4p7":
+            dfZX['TCjmax_4p7_jesup_'+i] = [tc(row[0],row[1],row[2],row[3],row[4]) for row in dfZX[['JetPt_JESUp_'+i,'JetEta','JetPhi','JetMass','Higgs']].values]
+            dfZX['TCjmax_4p7_jesdn_'+i] = [tc(row[0],row[1],row[2],row[3],row[4]) for row in dfZX[['JetPt_JESDown_'+i,'JetEta','JetPhi','JetMass','Higgs']].values]
+        if obs_reco == "pTj1_2p5" or obs_reco_2nd == "pTj1_2p5":
+            dfZX['pTj1_2p5_jesup_'+i] = [x.Pt() for x in dfZX['j1_jesup_'+i]]
+            dfZX['pTj1_2p5_jesdn_'+i] = [x.Pt() for x in dfZX['j1_jesdn_'+i]]
+        if obs_reco == "pTj1_4p7" or obs_reco_2nd == "pTj1_4p7":
+            dfZX['pTj1_4p7_jesup_'+i] = [x.Pt() for x in dfZX['j1_jesup_'+i]]
+            dfZX['pTj1_4p7_jesdn_'+i] = [x.Pt() for x in dfZX['j1_jesdn_'+i]]
 
     return dfZX
 

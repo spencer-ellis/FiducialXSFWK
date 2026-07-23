@@ -167,7 +167,7 @@ def dataframes(year, year_mc):
     gen_bkg = generators(year_mc)
     xsec_bkg = xsecs(year_mc)
     for bkg in bkgs:
-        b_bkg = ['ZZMass', 'ZZy', 'ZZPt', 'Z1Flav', 'Z2Flav', 'Z1Mass', 'Z2Mass', 'overallEventWeight', 'dataMCWeight', 'pTj1', 'pTj2', 'Nj', 'mjj', 'absdetajj', 'dphijj', 'pTHj', 'pTHjj', 'mHj', 'costheta1', 'costheta2', 'Phi', 'Phi1', 'costhetastar', 'TBjMax', 'TCjMax'] # # spencer
+        b_bkg = ['ZZMass', 'ZZy', 'ZZPt', 'Z1Flav', 'Z2Flav', 'Z1Mass', 'Z2Mass', 'overallEventWeight', 'dataMCWeight', 'pTj1', 'pTj2', 'Nj', 'mjj', 'absdetajj', 'dphijj', 'pTHj', 'pTHjj', 'mHj', 'costheta1', 'costheta2', 'Phi', 'Phi1', 'costhetastar', 'TBjMax', 'TCjMax', 'Nj_2p5', 'mjj_2p5', 'absdetajj_2p5', 'TCjMax_2p5', 'pTj1_2p5', 'Nj_4p7', 'mjj_4p7', 'absdetajj_4p7', 'TCjMax_4p7', 'pTj1_4p7'] # # spencer
         gen = gen_bkg[bkg]
         xsec = xsec_bkg[bkg]
         df_b = d_bkg[bkg].arrays(b_bkg, library="np")
@@ -925,7 +925,7 @@ if (opt.YEAR == '2022_2023'):
     d_bkg['2023postBPix'] = d_bkg_tmp['2023postBPix']
 
 # Generate pandas for ZX
-branches_ZX = ['ZZMass', 'Z1Flav', 'Z2Flav', 'LepLepId', 'LepEta', 'LepPt', 'Z2Mass', 'Z1Mass', 'ZZPt', 'ZZy', 'pTj1', 'pTj2', 'Nj', 'absdetajj', 'mjj', 'dphijj', 'pTHj', 'pTHjj', 'mHj', 'costheta1', 'costheta2', 'Phi', 'Phi1', 'costhetastar', 'TBjMax', 'TCjMax'] #
+branches_ZX = ['ZZMass', 'Z1Flav', 'Z2Flav', 'LepLepId', 'LepEta', 'LepPt', 'Z2Mass', 'Z1Mass', 'ZZPt', 'ZZy', 'pTj1', 'pTj2', 'Nj', 'absdetajj', 'mjj', 'dphijj', 'pTHj', 'pTHjj', 'mHj', 'costheta1', 'costheta2', 'Phi', 'Phi1', 'costhetastar', 'TBjMax', 'TCjMax', 'Nj_2p5', 'mjj_2p5', 'absdetajj_2p5', 'TCjMax_2p5', 'pTj1_2p5', 'Nj_4p7', 'mjj_4p7', 'absdetajj_4p7', 'TCjMax_4p7', 'pTj1_4p7']
 
 dfZX={}
 for year, year_mc in zip(years, years_MC):

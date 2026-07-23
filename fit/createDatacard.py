@@ -101,7 +101,7 @@ def fixJes(jesnp, jes_evts_noWeight):
             '''
             return jesnp+' '
 
-def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalModel, prodMode, year, nData, jes, lowerBound, upperBound, yearSetting):
+def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalModel, prodMode, year, nData, jes, lowerBound, upperBound, yearSetting, pileup=False):
     # Name of the bin (aFINALSTATE_ recobinX)
     if(channel == '4mu'): channelNumber = 1
     if(channel == '4e'): channelNumber = 2
@@ -172,6 +172,16 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
         # Store original year for key construction in JES dictionaries
         year_for_jes_keys = year
         sys.path.remove('../coefficients/JES')
+    if pileup:
+
+        sys.path.append('../coefficients/PILEUP')
+        obsName_for_pileup = obsName_base
+        _temp = __import__('PUWEIGHTNP_'+obsName_for_pileup+'_'+year, globals(), locals(), ['PUWEIGHTNP'], 0)
+        pileupnp = _temp.PUWEIGHTNP
+        _temp = __import__('PUWEIGHTNP_evts_'+obsName_for_pileup+'_'+year, globals(), locals(), ['evts_noWeight'], 0)
+        pileup_evts_noWeight = _temp.evts_noWeight
+        year_for_pileup_keys = year
+        sys.path.remove('../coefficients/PILEUP')
     sys.path.remove('../inputs')
 
     # lumi
@@ -831,6 +841,28 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
             # file.write(str(jesnp['ZX_'+channel+'_'+obsName+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)])+'\n')
 
                 #file.write('JES param 0.0 1.0\n')
+
+    # Pileup weight
+    if pileup == True:
+
+        obsName_for_pileup = obsName.replace('_zzfloating', '') if 'zzfloating' in obsName else obsName
+
+        if obsName_for_pileup == "TCjmax": obsName_pileup = "TCjMax"
+        elif obsName_for_pileup == "TBjmax": obsName_pileup = "TBjMax"
+        elif obsName_for_pileup == "TCjmax_pT4l": obsName_pileup = "TCjMax_ZZPt"
+        else: obsName_pileup = obsName_for_pileup
+
+        pileup_key = channel+'_'+year_for_pileup_keys+'_'+obsName_pileup.replace('pT4l', 'ZZPt')+'_recobin'+str(obsBin)
+
+        file.write('CMS_pileup_'+year_for_pileup_keys+' lnN ')
+        for i in range(nSignalColumns+2): # Signals + out + fake
+            file.write(str(fixJes(pileupnp['signal_'+pileup_key],
+                                  pileup_evts_noWeight['signal_'+pileup_key])))
+        file.write(str(fixJes(pileupnp['qqzz_'+pileup_key],
+                              pileup_evts_noWeight['qqzz_'+pileup_key])))
+        file.write(str(fixJes(pileupnp['ggzz_'+pileup_key],
+                              pileup_evts_noWeight['ggzz_'+pileup_key])))
+        file.write('- \n') # none for Z+X
 
     file.close()
 

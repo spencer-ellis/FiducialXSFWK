@@ -67,6 +67,16 @@ decimal = {
 'absdetajj_mjj': False,
 'Nj_pT4l': False,
 'pT4l_pTj1': False,
+'Nj_2p5': False,
+'Nj_4p7': False,
+'pTj1_2p5': False,
+'pTj1_4p7': False,
+'TCjmax_2p5': False,
+'TCjmax_4p7': False,
+'mjj_2p5': False,
+'mjj_4p7': False,
+'absdetajj_2p5': False,
+'absdetajj_4p7': False,
 }
 
 def readParam(file_param):

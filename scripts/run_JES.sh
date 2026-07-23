@@ -5,7 +5,8 @@ source setup.sh
 cmsenv
 cd FiducialXSFWK/coefficients/JES
 
-obsName="${1//_/' vs '}"
+#obsName="${1//_/' vs '}"
+obsName="$1"
 year="$2"
 
 python3 RunJES.py --obsName "$obsName" --year "$year"

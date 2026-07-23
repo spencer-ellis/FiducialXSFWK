@@ -149,6 +149,28 @@ def _theory_suffix(variable_name, channel):
     return "" if channel == "4l" else f"_{channel}"
 
 
+def _collect_absdetajj_mjj_scan(resultsXS, scan_tag, num_bins):
+    """Collect the hybrid non-VBF/VBF POIs used by the specialised fit."""
+    scan = {"xs": [], "err_up": [], "err_down": [], "stat_up": [], "stat_down": []}
+    for i in range(num_bins):
+        component = "VBFH" if i == num_bins - 1 else "totalMinusVBF"
+        if scan_tag == "totalMinusVBF":
+            suffix = "VBFH_totalMinusVBF" if component == "VBFH" else component
+            key = f"SM_125_absdetajj_mjj_{suffix}_genbin{i}"
+        else:
+            key = f"SM_125_absdetajj_mjj_{component}_allExtrap_genbin{i}"
+        stat_key = _get_stat_key(key)
+        if key not in resultsXS or stat_key not in resultsXS:
+            raise KeyError(f"Missing specialised scan result: {key} / {stat_key}")
+
+        scan["xs"].append(float(resultsXS[key]["central"]))
+        scan["err_up"].append(abs(float(resultsXS[key]["uncerUp"])))
+        scan["err_down"].append(abs(float(resultsXS[key]["uncerDn"])))
+        scan["stat_up"].append(abs(float(resultsXS[stat_key]["uncerUp"])))
+        scan["stat_down"].append(abs(float(resultsXS[stat_key]["uncerDn"])))
+    return scan
+
+
 def _collect_zzfloating_results(variable_name, version):
     resultsXS_exp = load_results(os.path.join(LHSCANS_DIR, f'resultsXS_LHScan_expected_{variable_name}_{version}.py'))
     zz_obs_tag = "observed" if UNBLIND else "expected"
@@ -499,6 +521,17 @@ def parse_results(channel, variable_name, year):
     if (UNBLIND): data = 1
     else: data = 0
 
+    vbf_scans = {}
+    if variable_name == "absdetajj_mjj" and channel == "4l":
+        vbf_scans = {
+            "total_minus_vbf": _collect_absdetajj_mjj_scan(
+                resultsXS, "totalMinusVBF", num_bins
+            ),
+            "all_extrap": _collect_absdetajj_mjj_scan(
+                resultsXS, "allExtrap", num_bins
+            ),
+        }
+
     return {
         variable_name: {
             "ggh_xs": f"fidXS_NNLOPS_{variable_name}_ggH{channel_tag}_{year}",
@@ -512,6 +545,7 @@ def parse_results(channel, variable_name, year):
             "err_down": err_down,
             "stat_up": stat_up,
             "stat_down": stat_down,
+            "vbf_scans": vbf_scans,
             "zznorm_exp": zznorm_exp,
             "zznorm_up_exp": zznorm_up_exp,
             "zznorm_down_exp": zznorm_down_exp,

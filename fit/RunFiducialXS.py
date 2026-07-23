@@ -81,11 +81,13 @@ def parseOptions():
     # parser.add_option('',   '--finalplotsOnly',action='store_true', dest='finalplotsOnly',default=False, help='Make the final plots only, default is False')
     parser.add_option('',   '--impactsOnly',action='store_true', dest='impactsOnly',default=False, help='Make the impacts plots only, default is False')
     parser.add_option('',   '--combineOnly',action='store_true', dest='combineOnly',default=False, help='Run the measurement only, default is False')
+    parser.add_option('',   '--cardsOnly',action='store_true', dest='CARDS_ONLY',default=False, help='Produce datacards only and do not run text2workspace or combine fits')
     parser.add_option('',   '--m4lLower',  dest='LOWER_BOUND',  type='int',default=105.0,   help='Lower bound for m4l')
     parser.add_option('',   '--m4lUpper',  dest='UPPER_BOUND',  type='int',default=160.0,   help='Upper bound for m4l')
     parser.add_option('',   '--ZZfloating',action='store_true', dest='ZZ',default=False, help='Let ZZ normalisation to float')
     parser.add_option('',   '--eff_unc', action='store_true', dest='EFF_UNC', default=False,   help='theory uncertainites on matrices')
     parser.add_option('',   '--acc_unc', action='store_true', dest='ACC_UNC', default=False,   help='theory uncertainites on acceptance matrices')
+    parser.add_option('',   '--pileup_unc', action='store_true', dest='PILEUP_UNC', default=False,   help='pileup weight uncertainties')
     parser.add_option('',   '--split_prod_mode', action='store_true', dest='SPLIT_PROD_MODE', default=False,   help='split production modes in datacards')
     parser.add_option('',   '--NOK1K2',action='store_true', dest='NOK1K2',default=False, help='remove K1 K2 parameters')
     parser.add_option('',   '--doVBFH', action='store_true', dest='DO_VBFH', default=False, help='absdetajj vs mjj only: float the 4 VBFH bin scale factors; non-VBF production has independent otherProd scale factors that float as other POIs.')
@@ -566,13 +568,13 @@ def produceDatacards(obsName, observableBins, ModelName, physicalmodel):
                 if obsName != "mass4l":
                     for obsBin in range(nBins):
                         ndata = createXSworkspace(obsName,fState, nBins, obsBin, observableBins, True, ModelName, physicalmodel, prodMode, year, JES, opt.INTER, opt.NOK1K2, opt.ZZ, doubleDiff, opt.LOWER_BOUND, opt.UPPER_BOUND, opt.OBSNAME) #creates a statistical workspace for the observable and bin.
-                        createDatacard(obsName, fState, nBins, obsBin, observableBins, physicalmodel, prodMode, year, ndata, JES, opt.LOWER_BOUND, opt.UPPER_BOUND, opt.YEAR) #creates a datacard with the relevant signal and background info.
+                        createDatacard(obsName, fState, nBins, obsBin, observableBins, physicalmodel, prodMode, year, ndata, JES, opt.LOWER_BOUND, opt.UPPER_BOUND, opt.YEAR, opt.PILEUP_UNC) #creates a datacard with the relevant signal and background info.
                         #createDatacard_ggH(obsName, fState, nBins, obsBin, observableBins, physicalmodel, year, ndata, JES, opt.LOWER_BOUND, opt.UPPER_BOUND, opt.YEAR)
                         if (opt.EFF_UNC or opt.ACC_UNC): pdfUnc_matrices.run_pdf_unc_matrices(f"{path['eos_path']}inputs/inputs_sig_{obsName}_{year}.py", obsName, year, physicalmodel, opt.SPLIT_PROD_MODE, opt.EFF_UNC, opt.ACC_UNC)
                         os.chdir('../datacard/datacard_'+year)
                 else:
                     ndata = createXSworkspace(obsName,fState, nBins, 0, observableBins, True, ModelName, physicalmodel, prodMode, year, JES, opt.INTER, opt.NOK1K2, opt.ZZ, doubleDiff, opt.LOWER_BOUND, opt.UPPER_BOUND, opt.OBSNAME)
-                    createDatacard(obsName, fState, nBins, 0, observableBins, physicalmodel, prodMode, year, ndata, JES, opt.LOWER_BOUND, opt.UPPER_BOUND, opt.YEAR)
+                    createDatacard(obsName, fState, nBins, 0, observableBins, physicalmodel, prodMode, year, ndata, JES, opt.LOWER_BOUND, opt.UPPER_BOUND, opt.YEAR, opt.PILEUP_UNC)
                     if (opt.EFF_UNC or opt.ACC_UNC): pdfUnc_matrices.run_pdf_unc_matrices(f"{path['eos_path']}inputs/inputs_sig_{obsName}_{year}_ORIG.py", obsName, year, physicalmodel, opt.SPLIT_PROD_MODE, opt.EFF_UNC, opt.ACC_UNC)
                     os.chdir('../datacard/datacard_'+year)
                     #Handles mass4l observables separately (because they are inclusive and only have one bin)
@@ -977,6 +979,9 @@ def runFiducialXS():
     for physicalModel in PhysicalModels:
         produceDatacards(obsName, observableBins, DataModelName, physicalModel)
         os.chdir(_fit_dir)
+        if opt.CARDS_ONLY:
+            print('[cardsOnly] Datacards produced for physical model '+physicalModel+'. Skipping card combination, text2workspace, and combine fits.')
+            continue
         if physicalModel == 'v3':
             runv3(years, observableBins, obsName, _obsName[obsName], physicalModel, higgs_xs, higgs4l_br, acc)
             break
@@ -1376,7 +1381,9 @@ with open('commands_'+obsName+'.py', 'w') as f:
 print("all modules successfully compiled")
 
 #processCmd('python expected_xsec.py --obsName "'+opt.OBSNAME+'" --year="'+opt.YEAR+'"')
-if opt.INTER:
+if opt.CARDS_ONLY:
+    print('[cardsOnly] Skipping expected_xsec.py')
+elif opt.INTER:
     processCmd('python3 expected_xsec.py --obsName "'+opt.OBSNAME+'" --year="'+opt.YEAR+'" --interpolation') # spencer
 else:
     processCmd('python3 expected_xsec.py --obsName "'+opt.OBSNAME+'" --year="'+opt.YEAR+'"') # spencer
