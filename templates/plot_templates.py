@@ -68,6 +68,8 @@ def parseOptions():
     parser.add_option('',   '--year',  dest='YEAR',  type='string',default='2022',   help='Year -> 2016 or 2017 or 2018 or Full')
     parser.add_option('',   '--m4lLower',  dest='LOWER_BOUND',  type='int',default=105,   help='Lower bound for m4l')
     parser.add_option('',   '--m4lUpper',  dest='UPPER_BOUND',  type='int',default=160,   help='Upper bound for m4l')
+    parser.add_option('',   '--ZZuncs', action='store_true', dest='ZZ_UNCS', default=False, help='Plot nominal qqZZ and QCD/PDF/alphaS Up/Down templates')
+    parser.add_option('',   '--ZZfloating', action='store_true', dest='ZZ', default=False, help='Read templates produced with floating ZZ normalization')
     # store options and arguments as global variables
     global opt, args
     (opt, args) = parser.parse_args()
@@ -122,7 +124,9 @@ obsTag = opt.OBSNAME
 if doubleDiff:
     N_BINS = len(obs_bins)
     for i in range(N_BINS):
-        if not decimal[obsTag]: obs_bins[i] = [int(k) for k in obs_bins[i]]
+        # Match RunTemplates naming: only rapidity double-differential bins
+        # retain decimal boundary tokens; the other 2D templates use integers.
+        if 'rapidity' not in obsTag: obs_bins[i] = [int(k) for k in obs_bins[i]]
     binRange = [str(obs_bins[i][0])+'_'+str(obs_bins[i][1])+'_'+str(obs_bins[i][2])+'_'+str(obs_bins[i][3]) for i in range(N_BINS)]
     binRangeLow = [str(obs_bins[i][0])+'_'+str(obs_bins[i][2]) for i in range(N_BINS)]
     binRangeHigh = [str(obs_bins[i][1])+'_'+str(obs_bins[i][3]) for i in range(N_BINS)]
@@ -130,14 +134,20 @@ if doubleDiff:
     binRangeLeg = [str(obs_bins[i][0])+'<'+obsTag+'<'+str(obs_bins[i][1])+'/'+str(obs_bins[i][2])+'<'+obsTag+'<'+str(obs_bins[i][3]) for i in range(N_BINS)]
 else:
     N_BINS = len(obs_bins)-1 #In case of 1D measurement the number of bins is -1 the length of obs_bins(=bin boundaries)
-    if not decimal[obsTag]: obs_bins = [int(k) for k in obs_bins]
+    use_decimal = decimal.get(obsTag, ('rapidity' in obsTag or 'cos' in obsTag or
+                                       'phi' in obsTag or 'deta' in obsTag or
+                                       obsTag in ['D0m', 'Dcp', 'D0hp', 'Dint', 'DL1', 'DL1Zg']))
+    if not use_decimal: obs_bins = [int(k) for k in obs_bins]
     binRange = [str(obs_bins[i])+'_'+str(obs_bins[i+1]) for i in range(N_BINS)]
     binRangeLow = [str(obs_bins[i]) for i in range(N_BINS)]
     binRangeHigh = [str(obs_bins[i+1]) for i in range(N_BINS)]
-    if not decimal[obsTag]:
+    if not use_decimal:
         binRangeLeg = [str(int(obs_bins[i]))+'<'+obsTag+'<'+str(int(obs_bins[i+1])) for i in range(N_BINS)]
     else:
         binRangeLeg = [str((obs_bins[i]))+'<'+obsTag+'<'+str((obs_bins[i+1])) for i in range(N_BINS)]
+
+if opt.ZZ:
+    obsTag += '_zzfloating'
 
 print("binRange", binRange)
 print("binRangeLow", binRangeLow)
@@ -180,6 +190,7 @@ for iYear in range(len(year)):
     h1D_2e2mu = {}
     h1D_4mu = {}
     h1D_4e = {}
+    h1D_ZZUncs = {'2e2mu': {}, '4mu': {}, '4e': {}}
 
     for iBin in range(N_BINS):
         for iBkg in range(len(bkgName)):
@@ -200,6 +211,32 @@ for iYear in range(len(year)):
             fTemplateFile_4e[iBkg,iBin] = ROOT.TFile(sTemplateDirName+"/"+sTemplateFileName, "READ")
             h1D_4e[iBkg,iBin] = ROOT.TH1D()
             h1D_4e[iBkg,iBin] = fTemplateFile_4e[iBkg,iBin].Get("m4l_"+obsTag+"_"+binRange[iBin])
+
+        if opt.ZZ_UNCS:
+            theory_suffixes = [
+                'ZZTheoryNominal',
+                'QCDscale_qqZZUp', 'QCDscale_qqZZDown',
+                'pdf_qqZZUp', 'pdf_qqZZDown',
+                'alphaS_qqZZUp', 'alphaS_qqZZDown',
+            ]
+            qqzz_files = {
+                '2e2mu': fTemplateFile_2e2mu[0, iBin],
+                '4mu': fTemplateFile_4mu[0, iBin],
+                '4e': fTemplateFile_4e[0, iBin],
+            }
+            base_histogram_name = 'm4l_'+obsTag+'_'+binRange[iBin]
+            for final_state, template_file in qqzz_files.items():
+                for suffix in theory_suffixes:
+                    histogram_name = base_histogram_name+'_'+suffix
+                    histogram = template_file.Get(histogram_name)
+                    if not histogram:
+                        raise RuntimeError(
+                            'Missing %s in %s. Run RunTemplates.py with --ZZuncs%s first.' %
+                            (histogram_name, template_file.GetName(),
+                             ' --ZZfloating' if opt.ZZ else ''))
+                    clone = histogram.Clone(histogram_name+'_'+final_state+'_plotTemplates')
+                    clone.SetDirectory(0)
+                    h1D_ZZUncs[final_state][suffix, iBin] = clone
 
     # prepare dummy
     var_plotHigh = opt.UPPER_BOUND
@@ -226,6 +263,43 @@ for iYear in range(len(year)):
     checkDir(sPlotsStore+"/"+year[iYear])
     checkDir(sPlotsStore+"/"+year[iYear]+"/"+obsTag)
     for iBin in range(N_BINS):
+
+        if opt.ZZ_UNCS:
+            theory_sources = {
+                'QCDscale': ('QCDscale_qqZZUp', 'QCDscale_qqZZDown',
+                             ROOT.kBlue+1, 'QCD scale'),
+                'pdf': ('pdf_qqZZUp', 'pdf_qqZZDown', ROOT.kRed+1, 'PDF'),
+                'alphaS': ('alphaS_qqZZUp', 'alphaS_qqZZDown',
+                           ROOT.kGreen+2, '#alpha_{S}'),
+            }
+            final_state_labels = {'2e2mu': '2e2#mu', '4mu': '4#mu', '4e': '4e'}
+            for final_state in ['2e2mu', '4mu', '4e']:
+                variations = h1D_ZZUncs[final_state]
+                for source, (up_suffix, down_suffix, color, source_label) in theory_sources.items():
+                    curves = [
+                        ('ZZTheoryNominal', ROOT.kBlack, 1, 'Nominal'),
+                        (up_suffix, color, 1, source_label+' Up'),
+                        (down_suffix, color, 2, source_label+' Down'),
+                    ]
+                    maximum = max(variations[suffix, iBin].GetMaximum()
+                                  for suffix, _, _, _ in curves)
+                    h1D_dummy.SetMaximum(1.35*maximum if maximum > 0.0 else 1.0)
+                    h1D_dummy.Draw()
+                    cmsPreliminary(c1, binRangeLeg[iBin]+'      '+final_state_labels[final_state]+'      '+year[iYear])
+                    theory_legend = ROOT.TLegend(0.60, 0.70, 0.91, 0.91)
+                    setLegendProperties(theory_legend)
+                    theory_legend.SetTextSize(18)
+                    for suffix, line_color, line_style, label in curves:
+                        histogram = variations[suffix, iBin]
+                        setHistProperties(histogram, lineWidth, line_style, line_color)
+                        histogram.Draw('HIST SAME')
+                        theory_legend.AddEntry(histogram, label, 'L')
+                    theory_legend.Draw()
+                    output_base = (sPlotsStore+'/'+year[iYear]+'/'+obsTag+
+                                   '/XSTemplates_ZZUncs_'+source+'_'+final_state+'_'+obsTag+'_'+
+                                   year[iYear]+'_'+binRange[iBin])
+                    #c1.SaveAs(output_base+'.pdf')
+                    #c1.SaveAs(output_base+'.png')
 
         ########## 2e2mu ##########
         #### qqZZZ + ggZZ +ZX ####

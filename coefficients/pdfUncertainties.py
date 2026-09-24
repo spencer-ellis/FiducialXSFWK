@@ -5,12 +5,27 @@ import ROOT
 
 import sys
 import os
+import math
 import importlib.util
-import uproot 
+import uproot
 import awkward as ak
 from collections import defaultdict
 
 import numpy as np
+
+def _sanitize(vals):
+    # low-statistics bins can produce nan/inf up/dn variations (0/0 or x/0);
+    # mirror expected_xsec_allPmodes.py's write_fid_file sanitization so
+    # these fidXS_*_up/dn files never carry unparseable literals.
+    clean = []
+    for v in vals:
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            clean.append(0.0)
+            continue
+        clean.append(v if math.isfinite(v) else 0.0)
+    return clean
 
 import matplotlib.pyplot as plt
 import mplhep as hep
@@ -411,13 +426,13 @@ def save_uncertainties(process, obs_gen, nnlops, year, years, unc, h, channel, d
          
     with open(fname, mode = 'w') as f:
         f.write(f'Boundaries = {bins}\n')
-        f.write(f'fidXS = {th_xs.fidXS}\n')
-        f.write(f'fidXS_scale_up = {list(unc[process][1]["qcd"].values())}\n')
-        f.write(f'fidXS_scale_dn = {list(unc[process][0]["qcd"].values())}\n')
-        f.write(f'fidXS_pdf_up = {list(unc[process][1]["pdf"].values())}\n')
-        f.write(f'fidXS_pdf_dn = {list(unc[process][0]["pdf"].values())}\n')
-        f.write(f'fidXS_alpha_up = {list(unc[process][1]["as"].values())}\n')
-        f.write(f'fidXS_alpha_dn = {list(unc[process][0]["as"].values())}\n')
+        f.write(f'fidXS = {_sanitize(th_xs.fidXS)}\n')
+        f.write(f'fidXS_scale_up = {_sanitize(unc[process][1]["qcd"].values())}\n')
+        f.write(f'fidXS_scale_dn = {_sanitize(unc[process][0]["qcd"].values())}\n')
+        f.write(f'fidXS_pdf_up = {_sanitize(unc[process][1]["pdf"].values())}\n')
+        f.write(f'fidXS_pdf_dn = {_sanitize(unc[process][0]["pdf"].values())}\n')
+        f.write(f'fidXS_alpha_up = {_sanitize(unc[process][1]["as"].values())}\n')
+        f.write(f'fidXS_alpha_dn = {_sanitize(unc[process][0]["as"].values())}\n')
 
         # save these to compute ratios for merging eras
         f.write(f'h_nom_qcd = {h[process][0]["qcd"]}\n')
@@ -599,13 +614,13 @@ def _write_combined_4e4mu_module(process, obs_name, suffix, out_year, era_to_rea
 
     with open(outname, 'w') as f:
         f.write(f'Boundaries = {bins}\n')
-        f.write(f'fidXS = {fidXS}\n')
-        f.write(f'fidXS_scale_up = {fidXS_scale_up}\n')
-        f.write(f'fidXS_scale_dn = {fidXS_scale_dn}\n')
-        f.write(f'fidXS_pdf_up = {fidXS_pdf_up}\n')
-        f.write(f'fidXS_pdf_dn = {fidXS_pdf_dn}\n')
-        f.write(f'fidXS_alpha_up = {fidXS_alpha_up}\n')
-        f.write(f'fidXS_alpha_dn = {fidXS_alpha_dn}\n')
+        f.write(f'fidXS = {_sanitize(fidXS)}\n')
+        f.write(f'fidXS_scale_up = {_sanitize(fidXS_scale_up)}\n')
+        f.write(f'fidXS_scale_dn = {_sanitize(fidXS_scale_dn)}\n')
+        f.write(f'fidXS_pdf_up = {_sanitize(fidXS_pdf_up)}\n')
+        f.write(f'fidXS_pdf_dn = {_sanitize(fidXS_pdf_dn)}\n')
+        f.write(f'fidXS_alpha_up = {_sanitize(fidXS_alpha_up)}\n')
+        f.write(f'fidXS_alpha_dn = {_sanitize(fidXS_alpha_dn)}\n')
 
         # keep the merging payload too (same as other channels)
         f.write(f'h_nom_qcd = {h_nom_qcd}\n')

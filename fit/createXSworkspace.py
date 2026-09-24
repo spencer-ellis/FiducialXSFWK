@@ -2,6 +2,10 @@
 # in each reco bin there are (nBins) signals (one for each gen bin)
 
 import ROOT
+
+def safe_fraction(numerator, denominator, fallback):
+    """Return a meaningful fixed fraction when a bin has zero total yield."""
+    return numerator / denominator if denominator != 0.0 else fallback
 from collections import OrderedDict as od
 import os,sys,subprocess
 from math import trunc
@@ -75,8 +79,8 @@ decimal = {
 'TCjmax_4p7': False,
 'mjj_2p5': False,
 'mjj_4p7': False,
-'absdetajj_2p5': False,
-'absdetajj_4p7': False,
+'absdetajj_2p5': True,
+'absdetajj_4p7': True,
 }
 
 def readParam(file_param):
@@ -96,7 +100,7 @@ PARAM_PATH = os.path.join(PARAM_PATH, "param")
 sys.path.append('../../inputs/')
 sys.path.append('../../templates/')
 
-def createXSworkspace(obsName, channel, nBins, obsBin, observableBins, addfakeH, modelName, physicalModel, prodMode, year, JES, INTER, NOK1K2, ZZ, doubleDiff, lowerBound, upperBound, rawObsName):
+def createXSworkspace(obsName, channel, nBins, obsBin, observableBins, addfakeH, modelName, physicalModel, prodMode, year, JES, INTER, NOK1K2, ZZ, doubleDiff, lowerBound, upperBound, rawObsName, ZZUNCS=False):
     print('\n')
     print('Creating WorkSpace', year)
 
@@ -848,9 +852,12 @@ def createXSworkspace(obsName, channel, nBins, obsBin, observableBins, addfakeH,
                     fidxs[fState] += higgs_xs['ZH_125.38']*higgs4l_br['125.38_'+fState]*acc['ZH125_'+fState+'_'+rawObsName+'_genbin'+str(genbin)+'_recobin'+str(genbin)]
                     fidxs[fState] += higgs_xs['ttH_125.38']*higgs4l_br['125.38_'+fState]*acc['ttH125_'+fState+'_'+rawObsName+'_genbin'+str(genbin)+'_recobin'+str(genbin)]
                 fidxs['4l'] = fidxs['4e'] + fidxs['4mu']
-                fracSM4eBin[str(genbin)] = ROOT.RooRealVar('fracSM4eBin'+str(genbin), 'fracSM4eBin'+str(genbin), fidxs['4e']/fidxs['4l'])
+                fallback_den = higgs4l_br['125.38_4e'] + higgs4l_br['125.38_4mu']
+                fallback_4e = higgs4l_br['125.38_4e'] / fallback_den
+                fallback_4mu = higgs4l_br['125.38_4mu'] / fallback_den
+                fracSM4eBin[str(genbin)] = ROOT.RooRealVar('fracSM4eBin'+str(genbin), 'fracSM4eBin'+str(genbin), safe_fraction(fidxs['4e'], fidxs['4l'], fallback_4e))
                 fracSM4eBin[str(genbin)].setConstant(True)
-                fracSM4muBin[str(genbin)] = ROOT.RooRealVar('fracSM4muBin'+str(genbin), 'fracSM4muBin'+str(genbin), fidxs['4mu']/fidxs['4l'])
+                fracSM4muBin[str(genbin)] = ROOT.RooRealVar('fracSM4muBin'+str(genbin), 'fracSM4muBin'+str(genbin), safe_fraction(fidxs['4mu'], fidxs['4l'], fallback_4mu))
                 fracSM4muBin[str(genbin)].setConstant(True)
 
                 rBin_channel[str(genbin)] = ROOT.RooRealVar("r4lBin"+str(genbin),"r4lBin"+str(genbin), fidxs['4l'] , 0.0, 10.0)
@@ -950,19 +957,26 @@ def createXSworkspace(obsName, channel, nBins, obsBin, observableBins, addfakeH,
             fidxs_ggH['4l'] = fidxs_ggH['4e'] + fidxs_ggH['4mu'] + fidxs_ggH['2e2mu']
             fidxs_xH['4l'] = fidxs_xH['4e'] + fidxs_xH['4mu'] + fidxs_xH['2e2mu']
 
-            fracSM4eBin[str(genbin)] = ROOT.RooRealVar('fracSM4eBin'+str(genbin), 'fracSM4eBin'+str(genbin), fidxs['4e']/fidxs['4l'])
+            fallback_den = (
+                higgs4l_br['125.38_4e']
+                + higgs4l_br['125.38_4mu']
+                + higgs4l_br['125.38_2e2mu']
+            )
+            fallback_4e = higgs4l_br['125.38_4e'] / fallback_den
+            fallback_4mu = higgs4l_br['125.38_4mu'] / fallback_den
+            fracSM4eBin[str(genbin)] = ROOT.RooRealVar('fracSM4eBin'+str(genbin), 'fracSM4eBin'+str(genbin), safe_fraction(fidxs['4e'], fidxs['4l'], fallback_4e))
             fracSM4eBin[str(genbin)].setConstant(True)
-            fracSM4muBin[str(genbin)] = ROOT.RooRealVar('fracSM4muBin'+str(genbin), 'fracSM4muBin'+str(genbin), fidxs['4mu']/fidxs['4l'])
+            fracSM4muBin[str(genbin)] = ROOT.RooRealVar('fracSM4muBin'+str(genbin), 'fracSM4muBin'+str(genbin), safe_fraction(fidxs['4mu'], fidxs['4l'], fallback_4mu))
             fracSM4muBin[str(genbin)].setConstant(True)
 
-            fracGGH4eBin[str(genbin)] = ROOT.RooRealVar('fracGGH4eBin'+str(genbin), 'fracGGH4eBin'+str(genbin), fidxs_ggH['4e']/fidxs_ggH['4l'])
+            fracGGH4eBin[str(genbin)] = ROOT.RooRealVar('fracGGH4eBin'+str(genbin), 'fracGGH4eBin'+str(genbin), safe_fraction(fidxs_ggH['4e'], fidxs_ggH['4l'], fallback_4e))
             fracGGH4eBin[str(genbin)].setConstant(True)
-            fracGGH4muBin[str(genbin)] = ROOT.RooRealVar('fracGGH4muBin'+str(genbin), 'fracGGH4muBin'+str(genbin), fidxs_ggH['4mu']/fidxs_ggH['4l'])
+            fracGGH4muBin[str(genbin)] = ROOT.RooRealVar('fracGGH4muBin'+str(genbin), 'fracGGH4muBin'+str(genbin), safe_fraction(fidxs_ggH['4mu'], fidxs_ggH['4l'], fallback_4mu))
             fracGGH4muBin[str(genbin)].setConstant(True)
 
-            fracXH4eBin[str(genbin)] = ROOT.RooRealVar('fracXH4eBin'+str(genbin), 'fracXH4eBin'+str(genbin), fidxs_xH['4e']/fidxs_xH['4l'])
+            fracXH4eBin[str(genbin)] = ROOT.RooRealVar('fracXH4eBin'+str(genbin), 'fracXH4eBin'+str(genbin), safe_fraction(fidxs_xH['4e'], fidxs_xH['4l'], fallback_4e))
             fracXH4eBin[str(genbin)].setConstant(True)
-            fracXH4muBin[str(genbin)] = ROOT.RooRealVar('fracXH4muBin'+str(genbin), 'fracXH4muBin'+str(genbin), fidxs_xH['4mu']/fidxs_xH['4l'])
+            fracXH4muBin[str(genbin)] = ROOT.RooRealVar('fracXH4muBin'+str(genbin), 'fracXH4muBin'+str(genbin), safe_fraction(fidxs_xH['4mu'], fidxs_xH['4l'], fallback_4mu))
             fracXH4muBin[str(genbin)].setConstant(True)
 
             if not NOK1K2:
@@ -1106,6 +1120,26 @@ def createXSworkspace(obsName, channel, nBins, obsBin, observableBins, addfakeH,
     print(qqzzTemplate.GetName())
     print('qqZZ bins',qqzzTemplate.GetNbinsX(),qqzzTemplate.GetBinLowEdge(1),qqzzTemplate.GetBinLowEdge(qqzzTemplate.GetNbinsX()+1))
 
+    qqzzTheoryTemplates = {}
+    if ZZUNCS:
+        theorySuffixes = [
+            'ZZTheoryNominal',
+            'QCDscale_qqZZUp', 'QCDscale_qqZZDown',
+            'pdf_qqZZUp', 'pdf_qqZZDown',
+            'alphaS_qqZZUp', 'alphaS_qqZZDown',
+        ]
+        for suffix in theorySuffixes:
+            template = qqzzTempFile.Get(qqzzTemplate.GetName()+'_'+suffix)
+            if not template:
+                raise RuntimeError(
+                    'Missing qqZZ theory template %s_%s in %s. '
+                    'Run RunTemplates.py with --ZZuncs%s first.' %
+                    (qqzzTemplate.GetName(), suffix, template_qqzzName,
+                     ' --ZZfloating' if ZZ else ''))
+            qqzzTheoryTemplates[suffix] = template.Clone(
+                qqzzTemplate.GetName()+'_'+suffix+'_workspace')
+            qqzzTheoryTemplates[suffix].SetDirectory(0)
+
     ggzzTempFile = ROOT.TFile(template_ggzzName,"READ")
     if decimal[rawObsName] and doubleDiff: ggzzTemplate = ggzzTempFile.Get("m4l_"+obsName+"_"+str(obsBin_low)+"_"+str(obsBin_high)+"_"+str(obsBin_2nd_low)+"_"+str(obsBin_2nd_high))
     elif decimal[rawObsName]: ggzzTemplate = ggzzTempFile.Get("m4l_"+obsName+"_"+str(obsBin_low)+"_"+str(obsBin_high))
@@ -1125,10 +1159,19 @@ def createXSworkspace(obsName, channel, nBins, obsBin, observableBins, addfakeH,
     os.chdir('../../../datacard/datacard_'+year)
 
     binscale = 5#3
-    qqzzTemplateNew = ROOT.TH1F("qqzzTemplateNew","qqzzTemplateNew",binscale*qqzzTemplate.GetNbinsX(),qqzzTemplate.GetBinLowEdge(1),qqzzTemplate.GetBinLowEdge(qqzzTemplate.GetNbinsX()+1))
-    for i in range(1,qqzzTemplate.GetNbinsX()+1):
-        for j in range(binscale):
-            qqzzTemplateNew.SetBinContent((i-1)*binscale+j+1,qqzzTemplate.GetBinContent(i)/binscale)
+    def expandTemplate(template, name):
+        expanded = ROOT.TH1F(name, name, binscale*template.GetNbinsX(),
+                             template.GetBinLowEdge(1),
+                             template.GetBinLowEdge(template.GetNbinsX()+1))
+        for sourceBin in range(1, template.GetNbinsX()+1):
+            for subBin in range(binscale):
+                expanded.SetBinContent((sourceBin-1)*binscale+subBin+1,
+                                       template.GetBinContent(sourceBin)/binscale)
+        return expanded
+
+    qqzzTemplateNew = expandTemplate(
+        qqzzTheoryTemplates['ZZTheoryNominal'] if ZZUNCS else qqzzTemplate,
+        'qqzzTemplateNew')
     ggzzTemplateNew = ROOT.TH1F("ggzzTemplateNew","ggzzTemplateNew",binscale*ggzzTemplate.GetNbinsX(),ggzzTemplate.GetBinLowEdge(1),ggzzTemplate.GetBinLowEdge(ggzzTemplate.GetNbinsX()+1))
     for i in range(1,ggzzTemplate.GetNbinsX()+1):
         for j in range(binscale):
@@ -1146,13 +1189,67 @@ def createXSworkspace(obsName, channel, nBins, obsBin, observableBins, addfakeH,
     ggzzTempDataHist = ROOT.RooDataHist(ggzzTemplateName,ggzzTemplateName,ROOT.RooArgList(m),ggzzTemplateNew)
     zjetsTempDataHist = ROOT.RooDataHist(zjetsTemplateName,zjetsTemplateName,ROOT.RooArgList(m),zjetsTemplateNew)
 
-    qqzzTemplatePdf = ROOT.RooHistPdf("qqzz","qqzz",ROOT.RooArgSet(m),qqzzTempDataHist)
+    # Keep a dedicated Python reference to the nominal PDF alive until the
+    # interpolating PDF is imported into the output workspace.  RooArgList
+    # does not own its contents; reusing qqzzTemplatePdf here allowed PyROOT
+    # to delete the nominal PDF when that variable was overwritten by the
+    # FastVerticalInterpHistPdf below.  The resulting dangling server could
+    # then resolve to the subsequently allocated ggZZ PDF.
+    qqzzNominalPdf = ROOT.RooHistPdf(
+        "qqzz_nominal", "qqzz_nominal", ROOT.RooArgSet(m), qqzzTempDataHist)
+    qqzzTemplatePdf = qqzzNominalPdf
+    qqzzTheoryDataHists = []
+    qqzzTheoryPdfs = []
+    qqzzTheoryParameters = []
+    qqzzTheoryIntegralRatios = {}
+    if ZZUNCS:
+        nominalIntegral = qqzzTheoryTemplates['ZZTheoryNominal'].Integral()
+        interpolationPdfs = ROOT.RooArgList(qqzzNominalPdf)
+        interpolationParameters = ROOT.RooArgList()
+        for source in ['QCDscale_qqZZ', 'pdf_qqZZ', 'alphaS_qqZZ']:
+            parameter = ROOT.RooRealVar(source, source, 0.0, -5.0, 5.0)
+            qqzzTheoryParameters.append(parameter)
+            interpolationParameters.add(parameter)
+            for direction in ['Up', 'Down']:
+                suffix = source+direction
+                expanded = expandTemplate(qqzzTheoryTemplates[suffix],
+                                          'qqzzTemplateNew_'+suffix)
+                datahist = ROOT.RooDataHist(
+                    qqzzTemplateName+'_'+suffix, qqzzTemplateName+'_'+suffix,
+                    ROOT.RooArgList(m), expanded)
+                pdf = ROOT.RooHistPdf(
+                    'qqzz_'+suffix, 'qqzz_'+suffix,
+                    ROOT.RooArgSet(m), datahist)
+                qqzzTheoryDataHists.append(datahist)
+                qqzzTheoryPdfs.append(pdf)
+                interpolationPdfs.add(pdf)
+                integral = qqzzTheoryTemplates[suffix].Integral()
+                qqzzTheoryIntegralRatios[suffix] = (
+                    integral/nominalIntegral if nominalIntegral > 0.0 else 1.0)
+        qqzzTemplatePdf = ROOT.FastVerticalInterpHistPdf(
+            'qqzz', 'qqzz', m, interpolationPdfs,
+            interpolationParameters, 1.0, 1)
     ggzzTemplatePdf = ROOT.RooHistPdf("ggzz","ggzz",ROOT.RooArgSet(m),ggzzTempDataHist)
     zjetsTemplatePdf = ROOT.RooHistPdf("zjets","zjets",ROOT.RooArgSet(m),zjetsTempDataHist)
 
     # bkg fractions in reco bin; implemented in terms of fractions
 
-    qqzz_norm = ROOT.RooFormulaVar("bkg_qqzz_norm", "@0", ROOT.RooArgList(frac_qqzz_var) )
+    if ZZUNCS:
+        qqzzNormArgs = ROOT.RooArgList(frac_qqzz_var)
+        qqzzNormFormula = '@0'
+        for parameterIndex, source in enumerate(
+                ['QCDscale_qqZZ', 'pdf_qqZZ', 'alphaS_qqZZ'], 1):
+            qqzzNormArgs.add(qqzzTheoryParameters[parameterIndex-1])
+            upRatio = qqzzTheoryIntegralRatios[source+'Up']
+            downRatio = qqzzTheoryIntegralRatios[source+'Down']
+            qqzzNormFormula += ('*(@%d>=0 ? 1+@%d*(%.17g-1) : '
+                                '1-@%d*(%.17g-1))' %
+                                (parameterIndex, parameterIndex, upRatio,
+                                 parameterIndex, downRatio))
+        qqzz_norm = ROOT.RooFormulaVar(
+            'bkg_qqzz_norm', qqzzNormFormula, qqzzNormArgs)
+    else:
+        qqzz_norm = ROOT.RooFormulaVar("bkg_qqzz_norm", "@0", ROOT.RooArgList(frac_qqzz_var) )
     ggzz_norm = ROOT.RooFormulaVar("bkg_ggzz_norm", "@0", ROOT.RooArgList(frac_ggzz_var) )
     zjets_norm = ROOT.RooFormulaVar("bkg_zjets_norm", "@0", ROOT.RooArgList(frac_zjets_var) )
 

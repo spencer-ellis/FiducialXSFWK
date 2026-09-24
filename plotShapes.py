@@ -35,6 +35,7 @@ def parseOptions():
     parser.add_option('',   '--m4lLower',  dest='LOWER_BOUND',  type='int',default=105.0,   help='Lower bound for m4l')
     parser.add_option('',   '--m4lUpper',  dest='UPPER_BOUND',  type='int',default=160.0,   help='Upper bound for m4l')
     parser.add_option('',   '--interpolation', action='store_true', dest='INTER', default=False, help='Calculate acceptances at 124 and 126 GeV')
+    parser.add_option('',   '--ZZfloating', action='store_true', dest='ZZ', default=False, help='Read the workspace with floating ZZ normalisations')
 
     parser.add_option("-l",action="callback",callback=callback_rootargs)
     parser.add_option("-q",action="callback",callback=callback_rootargs)
@@ -80,11 +81,18 @@ def generateName(_year, _fStateNumber, _recobin, _fState, _bin, _physicalModel, 
         return binName, procName
 
     else:
-        _obsName_v3 = {'pT4l': 'PTH', 'rapidity4l': 'YH', 'pTj1': 'PTJET', 'njets_pt30_eta4p7': 'NJ'}
-        if _obsName not in _obsName_v3:
+        _obsName_v3 = {'pT4l': 'PTH', 'rapidity4l': 'YH', 'pTj1': 'pTj1', 'njets_pt30_eta4p7': 'NJ'}
+        # Remap the base observable name first, then reattach any ZZfloating
+        # suffix, so e.g. 'pT4l_zzfloating' resolves to 'PTH_zzfloating'
+        # (matching the POI naming convention used in impacts.py) instead of
+        # falling through to the dict's identity fallback below.
+        if _obsName.endswith('_zzfloating'):
+            _obsName_base = _obsName[:-len('_zzfloating')]
+            _obsName_v3[_obsName] = _obsName_v3.get(_obsName_base, _obsName_base) + '_zzfloating'
+        elif _obsName not in _obsName_v3:
             _obsName_v3[_obsName] = _obsName
 
-        if '_' in obsName and not 'floating' in obsName and not 'kL' in obsName and obsName != 'njets_pt30_eta4p7':
+        if isinstance(_observableBins[_recobin], (list, tuple)):
             _recobin_final = str(_observableBins[_recobin][0]).replace('.', 'p').replace('-','m')+'_'+str(_observableBins[_recobin][1]).replace('.', 'p').replace('-','m')+'_'+str(_observableBins[_recobin][2]).replace('.', 'p').replace('-','m')+'_'+str(_observableBins[_recobin][3]).replace('.', 'p').replace('-','m')
             _genbin_final = str(_observableBins[_bin][0]).replace('.', 'p').replace('-','m')+'_'+str(_observableBins[_bin][1]).replace('.', 'p').replace('-','m')+'_'+str(_observableBins[_bin][2]).replace('.', 'p').replace('-','m')+'_'+str(_observableBins[_bin][3]).replace('.', 'p').replace('-','m')
         else:
@@ -172,7 +180,10 @@ def plotAsimov_sim(modelName, physicalModel, obsName, fstate, observableBins, re
 
     print("fname", fname)
 
-    f_asimov = TFile(sourcedir + fname, "READ")
+    input_path = os.path.join(sourcedir, fname)
+    f_asimov = TFile.Open(input_path, "READ")
+    if not f_asimov or f_asimov.IsZombie():
+        raise RuntimeError("Could not open fit output %s; run MultiDimFit successfully before plotting" % input_path)
 
 
     #f_asimov = TFile(os.path.join(eos_inputs_path, fname), "READ")
@@ -182,9 +193,15 @@ def plotAsimov_sim(modelName, physicalModel, obsName, fstate, observableBins, re
     if (not opt.UNBLIND):
         data = f_asimov.Get("toys/toy_asimov")
     w_asimov = f_asimov.Get("w")
+    if not w_asimov or not w_asimov.InheritsFrom("RooWorkspace"):
+        raise RuntimeError("Fit output %s does not contain RooWorkspace 'w'" % input_path)
+    if not w_asimov.getSnapshot("clean"):
+        raise RuntimeError("Workspace in %s does not contain the required 'clean' snapshot" % input_path)
     w_asimov.loadSnapshot("clean")
     if (opt.UNBLIND):
         data = w_asimov.data("data_obs")
+        if not w_asimov.getSnapshot("MultiDimFit"):
+            raise RuntimeError("Workspace in %s does not contain the required 'MultiDimFit' snapshot" % input_path)
         w_asimov.loadSnapshot("MultiDimFit")
     w_asimov.loadSnapshot("clean")
 
@@ -885,6 +902,9 @@ _temp = __import__(module_name, globals(), locals(), ['observableBins'])
 observableBins = _temp.observableBins
 
 sys.path.remove(eos_inputs_path)
+
+if opt.ZZ:
+    obsName += '_zzfloating'
 
 if obsName.startswith("mass4l"):
     PhysicalModels = ['v3']

@@ -148,8 +148,8 @@ def xsecs(year):
         #total_weight = d_sig[signal].pandas.df('overallEventWeight').overallEventWeight
         #puweight = d_sig[signal].pandas.df('PUWeight').PUWeight
         #genweight = d_sig[signal].pandas.df('genHEPMCweight').genHEPMCweight
-        if 'ggH' in signal:  df = d_sig[signal].arrays(['overallEventWeight', 'PUWeight', 'genHEPMCweight', 'ggH_NNLOPS_weight'], library="pd") # spencer
-        else: df = d_sig[signal].arrays(['overallEventWeight', 'PUWeight', 'genHEPMCweight'], library="pd") # spencer
+        if 'ggH' in signal:  df = d_sig[signal].arrays(['overallEventWeight', 'PUWeight', 'genHEPMCweight', 'ggH_NNLOPS_weight'], entry_stop=1, library="pd") # spencer
+        else: df = d_sig[signal].arrays(['overallEventWeight', 'PUWeight', 'genHEPMCweight'], entry_stop=1, library="pd") # spencer
         total_weight = df['overallEventWeight'] # spencer
         puweight = df['PUWeight'] # spencer
         genweight = df['genHEPMCweight'] # spencer
@@ -166,7 +166,7 @@ def xsecs(year):
         print(signal, xsec_sig[signal])
 
     for bkg in bkgs:
-        df = d_bkg[bkg].arrays(['overallEventWeight', 'PUWeight', 'genHEPMCweight'], library="pd") # spencer
+        df = d_bkg[bkg].arrays(['overallEventWeight', 'PUWeight', 'genHEPMCweight'], entry_stop=1, library="pd") # spencer
         total_weight = df['overallEventWeight'] # spencer
         puweight = df['PUWeight'] # spencer
         genweight = df['genHEPMCweight'] # spencer
@@ -279,16 +279,20 @@ def createDataframe(jesNames, year, dataFrame,isBkg,gen,xsec,signal,lumi,obs_rec
                 b_sig.append(obs_reco_2nd+"_"+name_to_use+"_ScaleUp")
                 b_sig.append(obs_reco_2nd+"_"+name_to_use+"_ScaleDn")
 
+    # Avoid reading duplicate columns when the observable is already one of the
+    # common event columns (for example ZZMass).
+    b_sig = list(dict.fromkeys(b_sig))
+
     missing_branches = sorted(set(b_sig) - set(dataFrame.keys()))
     if missing_branches:
         raise RuntimeError('Required branches missing for %s %s: %s' % (year, signal, ', '.join(missing_branches)))
 
-    df_np = dataFrame.arrays(library="np")
+    # Reading without an expressions list loads every branch in the tree.  The
+    # 2024 skims contain many large branches that JES/pileup never use and this
+    # was the dominant source of the >60 GB peak memory usage.
+    df_np = dataFrame.arrays(b_sig, library="np")
     df = pd.DataFrame({var: df_np[var] for var in b_sig})
 
-    df['gen'] = gen
-    df['xsec'] = xsec
-    
     df["FinState_reco"] = [add_fin_state_reco(i, j) for i, j in zip(df.Z1Flav, df.Z2Flav)]
 
     if signal != 'ggH125':
@@ -305,6 +309,14 @@ def createDataframe(jesNames, year, dataFrame,isBkg,gen,xsec,signal,lumi,obs_rec
     else:
         df = weight(df, xsec, gen, lumi, 'ggH')
         df = df.drop(columns=['ggH_NNLOPS_weight'])
+
+    # These inputs have served their purpose by this point.  Keeping them in
+    # every sample only increases the memory cost of the later concatenations.
+    drop_columns = ['Z1Flav', 'Z2Flav', 'overallEventWeight', 'weight_reco']
+    if not include_pileup:
+        drop_columns.extend(['PUWeight', 'PUWeightUp', 'PUWeightDown'])
+    df = df.drop(columns=[column for column in drop_columns if column in df])
+    df['FinState_reco'] = df['FinState_reco'].astype('category')
 
     return df
 

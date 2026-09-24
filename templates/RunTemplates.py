@@ -34,6 +34,7 @@ def parseOptions():
     parser.add_option('',   '--m4lLower',  dest='LOWER_BOUND',  type='int',default=105,   help='Lower bound for m4l')
     parser.add_option('',   '--m4lUpper',  dest='UPPER_BOUND',  type='int',default=160,   help='Upper bound for m4l')
     parser.add_option('',   '--ZZfloating',action='store_true', dest='ZZ',default=False, help='Let ZZ normalisation to float')
+    parser.add_option('',   '--ZZuncs', action='store_true', dest='ZZ_UNCS', default=False, help='Create qqZZ m4l theory-uncertainty templates and plots')
     # store options and arguments as global variables
     global opt, args
     (opt, args) = parser.parse_args()
@@ -168,12 +169,18 @@ def dataframes(year, year_mc):
     xsec_bkg = xsecs(year_mc)
     for bkg in bkgs:
         b_bkg = ['ZZMass', 'ZZy', 'ZZPt', 'Z1Flav', 'Z2Flav', 'Z1Mass', 'Z2Mass', 'overallEventWeight', 'dataMCWeight', 'pTj1', 'pTj2', 'Nj', 'mjj', 'absdetajj', 'dphijj', 'pTHj', 'pTHjj', 'mHj', 'costheta1', 'costheta2', 'Phi', 'Phi1', 'costhetastar', 'TBjMax', 'TCjMax', 'Nj_2p5', 'mjj_2p5', 'absdetajj_2p5', 'TCjMax_2p5', 'pTj1_2p5', 'Nj_4p7', 'mjj_4p7', 'absdetajj_4p7', 'TCjMax_4p7', 'pTj1_4p7'] # # spencer
+        if bkg == 'ZZTo4l' and opt.ZZ_UNCS:
+            b_bkg += ['LHEScaleWeight', 'LHEPdfWeight']
         gen = gen_bkg[bkg]
         xsec = xsec_bkg[bkg]
         df_b = d_bkg[bkg].arrays(b_bkg, library="np")
         df = pd.DataFrame(columns=b_bkg)
         for b in b_bkg:
-            df[b] = df_b[b]
+            # Keep vector-valued LHE weights as one numpy array per DataFrame row.
+            if b in ['LHEScaleWeight', 'LHEPdfWeight']:
+                df[b] = list(df_b[b])
+            else:
+                df[b] = df_b[b]
         df['FinState'] = [add_fin_state(i, j) for i,j in zip(df.Z1Flav, df.Z2Flav)]
         # df['njets_pt30_eta2p5'] = [add_njets(i,j) for i,j in zip(df['JetPt'],df['JetEta'])]
         # df['pTj1'] = [add_leadjet(i,j) for i,j in zip(df['JetPt'],df['JetEta'])]
@@ -369,22 +376,227 @@ def doZX(year, year_mc, setting, fake_rate_graphs=None):
 
 # ------------------------------- FUNCTIONS FOR TEMPLATES ----------------------------------------------------
 def smoothAndNormaliseTemplate(h1d, norm):
-    #smooth
     h1d.Smooth(10000)
-    #norm + floor + norm
-    #normaliseHist(h1d, norm)
     fillEmptyBinsHist(h1d,.01/(h1d.GetNbinsX()))
     normaliseHist(h1d, norm)
 
 def normaliseHist(h1d, norm):
     if (h1d.Integral() > 0): #return -1
-        h1d.Scale(norm/h1d.Integral())
+        h1d.Scale(norm/h1d.Integral()) 
     else:
         return -1
 
 def fillEmptyBinsHist(h1d, floor):
     nXbins=h1d.GetNbinsX()
     for i in range(1, nXbins+1): h1d.SetBinContent(i, h1d.GetBinContent(i)+floor)
+
+def _template_tokens(var_string, bounds):
+    """Return the filename and histogram boundary tokens used by doTemplates."""
+    if doubleDiff:
+        if 'rapidity' in var_string:
+            return [str(value) for value in bounds]
+        return [str(int(value)) for value in bounds]
+    use_decimal = (('rapidity4l' in obs_name) | ('cos' in obs_name) |
+                   ('phi' in obs_name) | ('deta' in obs_name) | acFlag)
+    if use_decimal:
+        return [str(value) for value in bounds]
+    return [str(int(value)) for value in bounds]
+
+def _qqzz_template_path(year, final_state, var_string, bounds):
+    tokens = _template_tokens(var_string, bounds)
+    return os.path.join(str(year), var_string,
+                        'XSBackground_qqzz_%s_%s_%s.root' %
+                        (final_state, var_string, '_'.join(tokens)))
+
+def _qqzz_histogram_name(var_string, bounds):
+    return 'm4l_%s_%s' % (var_string, '_'.join(_template_tokens(var_string, bounds)))
+
+def _make_smoothed_root_histogram(name, contents):
+    """Create and smooth the nominal qqZZ theory histogram."""
+    histogram = ROOT.TH1D(name, name, len(contents), opt.LOWER_BOUND, opt.UPPER_BOUND)
+    histogram.SetDirectory(0)
+    target_integral = float(np.sum(np.maximum(contents, 1.0e-9)))
+    for index, content in enumerate(contents, 1):
+        histogram.SetBinContent(index, max(float(content), 1.0e-9))
+    smoothAndNormaliseTemplate(histogram, target_integral)
+    return histogram
+
+def _make_qqzz_variation(name, raw_variation, raw_nominal, smoothed_nominal):
+    """Apply the raw variation/nominal ratio to the smoothed nominal."""
+    histogram = smoothed_nominal.Clone(name)
+    histogram.SetDirectory(0)
+    for index, (variation, nominal) in enumerate(
+            zip(raw_variation, raw_nominal), 1):
+        # The relative variation is undefined in an empty nominal bin. Keep
+        # the smoothed nominal value there rather than divide by zero.
+        ratio = float(variation) / float(nominal) if nominal != 0.0 else 1.0
+        histogram.SetBinContent(
+            index, ratio * smoothed_nominal.GetBinContent(index))
+        histogram.SetBinError(index, 0.0)
+    return histogram
+
+def _plot_qqzz_theory_templates(output_base, histograms, year, final_state, bin_index):
+    sources = {
+        'QCDscale': ('QCDscale_qqZZUp', 'QCDscale_qqZZDown', ROOT.kBlue + 1,
+                     'QCD scale'),
+        'pdf': ('pdf_qqZZUp', 'pdf_qqZZDown', ROOT.kRed + 1, 'PDF'),
+        'alphaS': ('alphaS_qqZZUp', 'alphaS_qqZZDown', ROOT.kGreen + 2,
+                   '#alpha_{S}'),
+    }
+    for source, (up_suffix, down_suffix, color, source_label) in sources.items():
+        canvas = ROOT.TCanvas(
+            'c_zzTheory_%s_%s_%s_%s' % (year, final_state, bin_index, source),
+            '', 900, 750)
+        legend = ROOT.TLegend(0.58, 0.68, 0.88, 0.88)
+        curves = [
+            ('ZZTheoryNominal', ROOT.kBlack, 1, 'Nominal'),
+            (up_suffix, color, 1, source_label + ' Up'),
+            (down_suffix, color, 2, source_label + ' Down'),
+        ]
+        maximum = max(histograms[suffix].GetMaximum()
+                      for suffix, _, _, _ in curves)
+        plotted_histograms = []
+        for draw_index, (suffix, line_color, line_style, label) in enumerate(curves):
+            plot_histogram = histograms[suffix].Clone(
+                histograms[suffix].GetName() + '_%s_plot' % source)
+            plot_histogram.SetDirectory(0)
+            plotted_histograms.append(plot_histogram)
+            plot_histogram.SetLineColor(line_color)
+            plot_histogram.SetLineStyle(line_style)
+            plot_histogram.SetLineWidth(2)
+            plot_histogram.SetMaximum(1.25 * maximum if maximum > 0 else 1.0)
+            plot_histogram.GetXaxis().SetTitle('m_{4l} [GeV]')
+            plot_histogram.GetYaxis().SetTitle('Weighted events')
+            plot_histogram.Draw('HIST' if draw_index == 0 else 'HIST SAME')
+            legend.AddEntry(plot_histogram, label, 'l')
+        legend.Draw()
+        canvas.SaveAs(output_base + '_' + source + '.pdf')
+        canvas.Close()
+
+def make_qqzz_theory_templates(df_background, binning, var, var_string, var_2nd='None'):
+    """Write m4l QCD/PDF/alphaS templates, normalizing floating merged groups together."""
+    sys.path.insert(0, '../fit')
+    from createDatacard import get_zzfloating_merged_bin_groups
+    sys.path.pop(0)
+
+    if isinstance(binning, dict):
+        bin_bounds = [binning[index] for index in sorted(binning)]
+    elif doubleDiff:
+        bin_bounds = list(binning)
+    else:
+        bin_bounds = [[binning[index], binning[index + 1]]
+                      for index in range(len(binning) - 1)]
+    n_bins = len(bin_bounds)
+    groups = (get_zzfloating_merged_bin_groups(var_string, n_bins)
+              if opt.ZZ else [[index] for index in range(n_bins)])
+    mass_edges = np.linspace(opt.LOWER_BOUND, opt.UPPER_BOUND, 21)
+    scale_indices = [0, 1, 3, 5, 7, 8]
+
+    for year in years_MC:
+        for final_state in ['2e2mu', '4e', '4mu']:
+            source = df_background[year]['qqzz']
+            base_selection = ((source['FinState'] == final_state) &
+                              (source['ZZMass'] >= opt.LOWER_BOUND) &
+                              (source['ZZMass'] <= opt.UPPER_BOUND))
+            nominal = np.zeros((n_bins, 20))
+            qcd = np.zeros((6, n_bins, 20))
+            pdf = np.zeros((100, n_bins, 20))
+            alpha_s = np.zeros((2, n_bins, 20))
+
+            for bin_index, bounds in enumerate(bin_bounds):
+                selection = base_selection & (source[var] >= bounds[0]) & (source[var] < bounds[1])
+                if doubleDiff:
+                    selection &= (source[var_2nd] >= bounds[2]) & (source[var_2nd] < bounds[3])
+                selected = source[selection]
+                masses = selected['ZZMass'].to_numpy(dtype=float)
+                event_weights = selected['weight'].to_numpy(dtype=float)
+                nominal[bin_index] = np.histogram(masses, mass_edges, weights=event_weights)[0]
+                if len(selected) == 0:
+                    continue
+                scale_weights = np.stack(selected['LHEScaleWeight'].to_numpy())
+                pdf_weights = np.stack(selected['LHEPdfWeight'].to_numpy())
+                if scale_weights.shape[1] < 9 or pdf_weights.shape[1] < 103:
+                    raise RuntimeError('Unexpected LHE weight layout for ZZTo4l %s %s' % (year, final_state))
+                scale_central = scale_weights[:, 4]
+                pdf_central = pdf_weights[:, 0]
+                for variation, weight_index in enumerate(scale_indices):
+                    ratio = np.divide(scale_weights[:, weight_index], scale_central,
+                                      out=np.ones(len(selected)), where=scale_central != 0)
+                    qcd[variation, bin_index] = np.histogram(
+                        masses, mass_edges, weights=event_weights * ratio)[0]
+                for replica in range(100):
+                    ratio = np.divide(pdf_weights[:, replica + 1], pdf_central,
+                                      out=np.ones(len(selected)), where=pdf_central != 0)
+                    pdf[replica, bin_index] = np.histogram(
+                        masses, mass_edges, weights=event_weights * ratio)[0]
+                for variation, weight_index in enumerate([-2, -1]):
+                    ratio = np.divide(pdf_weights[:, weight_index], pdf_central,
+                                      out=np.ones(len(selected)), where=pdf_central != 0)
+                    alpha_s[variation, bin_index] = np.histogram(
+                        masses, mass_edges, weights=event_weights * ratio)[0]
+
+            if opt.ZZ:
+                # A floating parameter controls each configured merged group. Remove only
+                # the total normalization of that group, retaining migrations among its bins.
+                for group in groups:
+                    nominal_integral = np.sum(nominal[group])
+                    for variations in [qcd, pdf, alpha_s]:
+                        for variation in range(variations.shape[0]):
+                            varied_integral = np.sum(variations[variation, group])
+                            if varied_integral > 0:
+                                variations[variation, group] *= nominal_integral / varied_integral
+
+            qcd_down, qcd_up = np.min(qcd, axis=0), np.max(qcd, axis=0)
+            pdf_rms = np.sqrt(np.mean(np.square(pdf - nominal[np.newaxis, :, :]), axis=0))
+            pdf_down, pdf_up = nominal - pdf_rms, nominal + pdf_rms
+            alpha_down, alpha_up = np.min(alpha_s, axis=0), np.max(alpha_s, axis=0)
+
+            endpoints = [qcd_down, qcd_up, pdf_down, pdf_up,
+                         alpha_down, alpha_up]
+            for endpoint in endpoints:
+                np.maximum(endpoint, 1.0e-9, out=endpoint)
+
+            if opt.ZZ:
+                # The envelope/RMS combination can itself change an integral even
+                # when every input variation was normalized. Enforce the same group
+                # integral on the final endpoints so a floating rateParam remains
+                # the sole controller of that merged group's normalization.
+                for group in groups:
+                    nominal_integral = np.sum(nominal[group])
+                    for endpoint in endpoints:
+                        endpoint_integral = np.sum(endpoint[group])
+                        if endpoint_integral > 0:
+                            endpoint[group] *= nominal_integral / endpoint_integral
+
+            for bin_index, bounds in enumerate(bin_bounds):
+                base_name = _qqzz_histogram_name(var_string, bounds)
+                contents = {
+                    'ZZTheoryNominal': nominal[bin_index],
+                    'QCDscale_qqZZUp': qcd_up[bin_index],
+                    'QCDscale_qqZZDown': qcd_down[bin_index],
+                    'pdf_qqZZUp': pdf_up[bin_index],
+                    'pdf_qqZZDown': pdf_down[bin_index],
+                    'alphaS_qqZZUp': alpha_up[bin_index],
+                    'alphaS_qqZZDown': alpha_down[bin_index],
+                }
+                nominal_histogram = _make_smoothed_root_histogram(
+                    base_name + '_ZZTheoryNominal', nominal[bin_index])
+                histograms = {'ZZTheoryNominal': nominal_histogram}
+                for suffix, values in contents.items():
+                    if suffix == 'ZZTheoryNominal':
+                        continue
+                    histograms[suffix] = _make_qqzz_variation(
+                        base_name + '_' + suffix, values, nominal[bin_index],
+                        nominal_histogram)
+                template_path = _qqzz_template_path(year, final_state, var_string, bounds)
+                output_file = ROOT.TFile.Open(template_path, 'UPDATE')
+                if not output_file or output_file.IsZombie():
+                    raise IOError('Could not update qqZZ template file %s' % template_path)
+                for histogram in histograms.values():
+                    histogram.Write('', ROOT.TObject.kOverwrite)
+                output_file.Close()
+                plot_base = template_path.replace('.root', '_ZZTheory')
+                _plot_qqzz_theory_templates(plot_base, histograms, year, final_state, bin_index)
 
 def doTemplates(df_irr, df_inc, df_2j, binning, var, var_string, var_2nd='None'):
     for year in years_MC:
@@ -410,7 +622,7 @@ def doTemplates(df_irr, df_inc, df_2j, binning, var, var_string, var_2nd='None')
                         bin_high = binning[i][1]
                         bin_low_2nd = binning[i][2]
                         bin_high_2nd = binning[i][3]
-                    print(bkg, f)
+                    #print(bkg, f)
                     #print("Available columns in df_irr['2022']['qqzz']:", df_irr["2022"]["qqzz"].columns.tolist())
                     #print(f"Trying to access variable: {var}")
                     sel_bin_low = df_irr[year][bkg][var] >= bin_low
@@ -578,7 +790,11 @@ def doTemplates(df_irr, df_inc, df_2j, binning, var, var_string, var_2nd='None')
                     else:
                         histo = ROOT.TH1D("m4l_"+var_string+"_"+str(int(bin_low))+"_"+str(int(bin_high)), "m4l_"+var_string+"_"+str(int(bin_low))+"_"+str(int(bin_high)), 20, opt.LOWER_BOUND, opt.UPPER_BOUND)
 
-                    print (histo.GetName())
+                    if len(mass4l) == 0:
+                        mass4l = np.array([0.0], dtype=np.float64)
+                        w = np.array([0.0], dtype=np.float64)
+
+                    #print (histo.GetName())
                     histo.FillN(len(mass4l), mass4l, w)
                     smoothAndNormaliseTemplate(histo, 1)
 
@@ -672,6 +888,35 @@ def doTemplates(df_irr, df_inc, df_2j, binning, var, var_string, var_2nd='None')
 
                 fractionBkg['ZJetsCR_'+f+'_'+var_string+'_recobin'+str(i)] = float(len_bin/len_tot[f])
 
+                # Keep the composition of each reconstructed-bin ZX yield.  The
+                # fake-rate estimate uses a different prescription for 0/1-jet
+                # and >=2-jet events, and the associated normalization
+                # uncertainty also depends on the CR final state.  These
+                # fractions allow createDatacard.py to build the correct
+                # bin-by-bin effective lnN variations while retaining the
+                # existing single bkg_zjets workspace process.
+                zx_components = {
+                    '4e': 0,
+                    '4mu': 1,
+                    '2e2mu': 2,
+                    '2mu2e': 3,
+                }
+                for jet_category, jet_selection in (
+                        ('0j1j', df['Nj'] < 2),
+                        ('2j', df['Nj'] >= 2)):
+                    for cr_final_state, final_state_index in zx_components.items():
+                        component_yield = df.loc[
+                            jet_selection & (df['FinState'] == final_state_index),
+                            'yield_SR'
+                        ].sum()
+                        component_fraction = (
+                            float(component_yield / len_bin) if len_bin > 0.0 else 0.0
+                        )
+                        fractionBkg[
+                            'ZJetsCR_component_'+jet_category+'_'+cr_final_state+'_'+
+                            f+'_'+var_string+'_recobin'+str(i)
+                        ] = component_fraction
+
                 # ------
                 if(len_bin <= 0): df = df_inclusive
                 mass4l = df['ZZMass'].to_numpy()
@@ -692,9 +937,6 @@ def doTemplates(df_irr, df_inc, df_2j, binning, var, var_string, var_2nd='None')
                     mass4l = np.array([0.0], dtype=np.float64)
                     w = np.array([0.0], dtype=np.float64)
 
-                print(len(mass4l))
-                print(mass4l)
-                print(w)
 
                 histo.FillN(len(mass4l), mass4l, w)
                 smoothAndNormaliseTemplate(histo, 1)
@@ -864,6 +1106,12 @@ if doubleDiff:
     obs_reco_2nd = observables[obs_name]['obs_reco_2nd']
 obs_reco = observables[obs_name]['obs_reco']
 
+# For m4l itself the single reco bin must follow the requested mass window,
+# otherwise the hardcoded |105|160| edges in binning.py clip the selection
+if obs_reco == 'ZZMass' and not doubleDiff:
+    obs_bins = [float(opt.LOWER_BOUND), float(opt.UPPER_BOUND)]
+    print('m4l observable: bin edges set to the m4l window', obs_bins)
+
 if doubleDiff:
     obs_name = opt.OBSNAME.split(' vs ')[0]
     obs_name_2nd = opt.OBSNAME.split(' vs ')[1]
@@ -951,6 +1199,12 @@ if ( obs_name == "rapidity4l" or obs_name == "rapidity4l_pT4l" ):
         
 if not doubleDiff:doTemplates(d_bkg, dfZX, dfZX_2j, obs_bins, obs_reco, obs_name)
 else: doTemplates(d_bkg, dfZX, dfZX_2j, obs_bins, obs_reco, obs_name, obs_reco_2nd)
+
+if opt.ZZ_UNCS:
+    if not doubleDiff:
+        make_qqzz_theory_templates(d_bkg, obs_bins, obs_reco, obs_name)
+    else:
+        make_qqzz_theory_templates(d_bkg, obs_bins, obs_reco, obs_name, obs_reco_2nd)
 
 printCombinedYields(yield_bkg)
 

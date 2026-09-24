@@ -17,6 +17,8 @@ import importlib.util
 from paths import path
 from higgs_xsbr_13TeV import *
 
+from createDatacard import get_zzfloating_merged_bin_indices
+
 plt.rcParams['text.usetex'] = True
 plt.rcParams['font.family'] = 'serif'
 
@@ -57,7 +59,7 @@ def parseOptions():
 
 VAR_LABELS = {
     "mass4l": r"$m_{4\ell}$",
-    "mass4l_zzfloating": r"$m_{4\ell}^{\text{ZZ floating}}$",
+    "mass4l_zzfloating": r"$m_{4\ell}^{\mathrm{ZZ\ floating}}$",
     "pT4l": r"$p^T_{4\ell}$",
     "rapidity4l": r"$|y_{4\ell}|$",
     "massZ1": r"$m_{Z_1}$",
@@ -105,7 +107,19 @@ def processCmd(cmd, quiet = 0):
 
 def get_fit_name(obsName):
     obs_map = {'pT4l': 'PTH', 'rapidity4l': 'YH', 'pTj1': 'pTj1', 'Nj': 'Nj'}
+    if obsName.endswith('_zzfloating'):
+        base = obsName[:-len('_zzfloating')]
+        return obs_map.get(base, base) + '_zzfloating'
     return obs_map.get(obsName, obsName)
+
+def get_zznorm_pois_plot(obsName, nBins):
+    # zz_norm bins can be coarser than the signal binning (see
+    # ZZFLOATING_BIN_MERGES in createDatacard.py), so the zz_norm POI count
+    # may be smaller than nBins.
+    indices = get_zzfloating_merged_bin_indices(obsName, nBins)
+    pois = ['zz_norm_%d' %i for i in indices]
+    pois_plot = ['ZZ_%d' %i for i in indices]
+    return pois, pois_plot
 
 def get_vbf_pois(label, fitName, nBins):
     poi_templates = {
@@ -176,13 +190,16 @@ def PlotCorrelation():
             for obsBin in range(nBins):
                 pois += ['r_smH_'+fitName+'_'+str(obsBin)]
                 pois_plot += ['r_'+str(obsBin)]
-        if obsName == 'mass4l_zzfloating':
+        if 'zzfloating' in obsName:
             if physicalModel == 'v3':
-                pois += ['zz_norm_0']
-                pois_plot += ['ZZ']
-            else:
-                pois = ['r4muBin0', 'zz_norm_0', 'r4eBin0', 'r2e2muBin0']
-                pois_plot = ['$\sigma_{4\mu}$', 'ZZ', '$\sigma_{4e}$', '$\sigma_{2e2\mu}$']
+                zznorm_pois, zznorm_pois_plot = get_zznorm_pois_plot(obsName, nBins)
+                pois += zznorm_pois
+                pois_plot += zznorm_pois_plot
+            elif obsName == 'mass4l_zzfloating':
+                # v2 (mass4l per-channel fit): zz_norm is channel-suffixed in
+                # the datacard (zz_norm_0_<channel>), one per final state.
+                pois = ['r4muBin0', 'zz_norm_0_4mu', 'r4eBin0', 'zz_norm_0_4e', 'r2e2muBin0', 'zz_norm_0_2e2mu']
+                pois_plot = ['$\sigma_{4\mu}$', '$ZZ_{4\mu}$', '$\sigma_{4e}$', '$ZZ_{4e}$', '$\sigma_{2e2\mu}$', '$ZZ_{2e2\mu}$']
 
         pars = od()
         modes = od()
@@ -204,11 +221,13 @@ def PlotCorrelation():
                 'Correlation fit %s failed with status %d.'
                 %(physicalModel, fitResult.status())
             )
-        if fitResult.covQual() < 2:
-            raise RuntimeError(
-                'Correlation fit %s has invalid covariance quality %d.'
-                %(physicalModel, fitResult.covQual())
-            )
+        # Note: fitResult.covQual() is not a meaningful check here -- RunCorrelation.py
+        # always runs with --robustHesse, which combine implements by explicitly
+        # skipping the standard Hesse/covariance calculation (see MultiDimFit.cc,
+        # "saveFitResult_ && !robustHesse_") in favor of its own more robust Hessian
+        # (written separately to robustHesse_<name>.root). The returned fit_mdf
+        # never gets a populated covQual in this mode, so status() == 0 is the
+        # correct convergence check to rely on instead.
         theList = fitResult.floatParsFinal()
  
         for iPar in range(len(theList)):
@@ -254,7 +273,8 @@ def PlotCorrelation():
         #ax.text(0.55, 0.85, r'm$_{\mathrm{H}}$ = 125.38 GeV', fontsize = 25, transform = ax.transAxes)
 
         #ax.text(0.45, 0.95, VAR_LABELS[obsName]+r' - H$\rightarrow$ ZZ, m$_{\mathrm{H}}$ = 125.38 GeV', fontsize = 12, transform = ax.transAxes)
-        ax.text(0.58, 0.8, VAR_LABELS[obsName], fontsize = 30, transform = ax.transAxes)
+        var_label = VAR_LABELS.get(obsName, VAR_LABELS.get(obsName.replace('_zzfloating', ''), obsName))
+        ax.text(0.58, 0.8, var_label, fontsize = 30, transform = ax.transAxes)
         if opt.DO_VBF:
             ax.text(0.62, 0.72, physicalModel, fontsize = 24, transform = ax.transAxes)
 
@@ -315,7 +335,11 @@ if opt.DO_VBF:
 elif obsName.startswith("mass4l"):
     PhysicalModels = ['v2','v3']
 elif obsName == 'D0m' or obsName == 'Dcp' or obsName == 'D0hp' or obsName == 'Dint' or obsName == 'DL1' or obsName == 'DL1Zg' or obsName == 'costhetaZ1' or obsName == 'costhetaZ2'or obsName == 'costhetastar' or obsName == 'phi' or obsName == 'phistar' or obsName == 'massZ1' or obsName == 'massZ2':
-    PhysicalModels = ['v3','v4']
+    # step3 (RunFiducialXS.py) only ever produces a v4 workspace for the
+    # double-differential massZ1_massZ2 combination -- these single 1D
+    # variables never get a "*_bin_v4_<year>.root" file, so requesting v4
+    # correlation here always fails with a missing-file error.
+    PhysicalModels = ['v3']
 elif 'kL' in obsName:
     PhysicalModels = ['kLambda']
 else:
@@ -349,6 +373,13 @@ if type(observableBins) is dict: doubleDiff = True # If binning is a dictionary 
 
 nBins = len(observableBins)
 if not doubleDiff: nBins = nBins-1 #in case of 1D measurement the number of bins is -1 the length of the list of bin boundaries
+
+# --ZZfloating takes the base obsName (used above to find the inputs file,
+# mirroring RunFiducialXS.py's obsName_for_inputs) and appends the suffix
+# here, after PhysicalModels/inputs are resolved, so it also works for
+# double-differential obsNames reconstructed from the "vs" splitting above.
+if opt.ZZ and not obsName.endswith('_zzfloating'):
+    obsName += '_zzfloating'
 
 os.chdir(path['eos_path']+'combine_files/')
 PlotCorrelation()

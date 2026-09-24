@@ -13,6 +13,11 @@ from paths import path
 sys.path.append(path['eos_path']+'inputs/')
 from higgs_xsbr_13TeV import *
 
+# Disable Combine's vectorized/caching NLL implementation.  It is only a
+# computational optimization, but it can segfault when a
+# FastVerticalInterpHistPdf is evaluated for an empty channel dataset.
+NLL_RUNTIME_OPTION = ' --X-rtd ADDNLL_HISTNLL=0'
+
 def parseOptions():
 
     global opt, args, runAllSteps
@@ -87,7 +92,7 @@ def processCmd(cmd, quiet=0):
         raise RuntimeError(f"Command '{cmd}' failed with exit status: {p.returncode}")
     return output
 
-def run_special_impact(obsName, workspace_tag, pois, output_tag, set_params, unblind, plot_pois=None):
+def run_special_impact(obsName, workspace_tag, pois, output_tag, set_params, unblind, plot_pois=None, physics_model='v3', poi_bounds=(0, 10)):
     if isinstance(pois, str):
         pois = [pois]
     if plot_pois is None:
@@ -95,20 +100,30 @@ def run_special_impact(obsName, workspace_tag, pois, output_tag, set_params, unb
     elif isinstance(plot_pois, str):
         plot_pois = [plot_pois]
 
-    workspace = path['eos_path']+'combine_files/SM_125_all_13TeV_xs_'+obsName+'_bin_v3_'+workspace_tag+'_'+str(opt.YEAR)+'.root'
-    output_base = 'impacts_'+opt.YEAR+'_v3_'+obsName+'_'+output_tag+'_'
+    workspace = path['eos_path']+'combine_files/SM_125_all_13TeV_xs_'+obsName+'_bin_'+physics_model
+    if workspace_tag:
+        workspace += '_'+workspace_tag
+    workspace += '_'+str(opt.YEAR)+'.root'
+    output_base = 'impacts_'+opt.YEAR+'_'+physics_model+'_'+obsName+'_'+output_tag+'_'
     json_name = output_base + ('data.json' if unblind else 'asimov.json')
     poi_list = ','.join(pois)
     poi_range = 'MH=125.38,125.38'
-    for poi in pois:
-        poi_range += ':%s=0,10' %poi
+    if poi_bounds is not None:
+        for poi in pois:
+            poi_range += ':%s=%s,%s' %(poi, poi_bounds[0], poi_bounds[1])
     common = ' -d '+workspace+' -m 125.38 --cminDefaultMinimizerStrategy 0 --robustFit 1'
+    common += ' -n '+output_tag
     common += ' --redefineSignalPOIs '+poi_list
     common += ' --setParameterRanges '+poi_range
     common += ' --setParameters '+set_params
-    common += ' --floatOtherPOIs=1 --saveInactivePOI=1 --saveFitResult'
 
-    cmd = 'combineTool.py -M Impacts'+common+' --doInitialFit'
+    # Note: --doFits (and --doInitialFit with --splitInitial) already hardcode
+    # '--floatOtherPOIs 1 --saveInactivePOI 1' in their generated combine jobs, so
+    # passing them again here would make combine reject the command with
+    # "option '--floatOtherPOIs' cannot be specified more than once". They're only
+    # added explicitly to the initial-fit step below, where combineTool doesn't add
+    # them itself but we still want the other POIs floating.
+    cmd = 'combineTool.py -M Impacts'+common+' --floatOtherPOIs=1 --saveInactivePOI=1 --saveFitResult'+NLL_RUNTIME_OPTION+' --doInitialFit'
     if not unblind:
         cmd += ' -t -1'
     print('---------------------------')
@@ -117,7 +132,7 @@ def run_special_impact(obsName, workspace_tag, pois, output_tag, set_params, unb
     cmds.append(cmd)
     processCmd(cmd)
 
-    cmd = 'combineTool.py -M Impacts'+common+' --doFits --parallel 10'
+    cmd = 'combineTool.py -M Impacts'+common+NLL_RUNTIME_OPTION+' --doFits --parallel 4'
     if not unblind:
         cmd += ' -t -1'
     print('---------------------------')
@@ -137,7 +152,7 @@ def run_special_impact(obsName, workspace_tag, pois, output_tag, set_params, unb
 
     suffix = 'data' if unblind else 'asimov'
     for poi in plot_pois:
-        cmd = 'plotImpacts.py --blind -i '+json_name+' -o impacts_'+opt.YEAR+'_v3_'+obsName+'_'+output_tag+'_'+poi+'_'+suffix+' --POI '+poi
+        cmd = 'plotImpacts.py --blind -i '+json_name+' -o impacts_'+opt.YEAR+'_'+physics_model+'_'+obsName+'_'+output_tag+'_'+poi+'_'+suffix+' --POI '+poi
         print('---------------------------')
         print(cmd, '\n')
         print('---------------------------')
@@ -165,8 +180,9 @@ def impactPlots(obsName):
 
 
     # Impact plot
-    checkDir(f'../impacts/{obsName}')
-    os.chdir(f'../impacts/{obsName}')
+    impacts_dir = obsName + '_zzfloating' if opt.ZZ else obsName
+    checkDir(f'../impacts/{impacts_dir}')
+    os.chdir(f'../impacts/{impacts_dir}')
     #print('Current directory: impacts')
     nBins = len(observableBins)
     if not doubleDiff: nBins = nBins-1 #in case of 1D measurement the number of bins is -1 the length of the list of bin boundaries
@@ -179,6 +195,19 @@ def impactPlots(obsName):
     else:
         if opt.ZZ: obsName_poi = obsName + '_zzfloating'
         else: obsName_poi = obsName
+
+    zz_pois = []
+    if opt.ZZ:
+        from createDatacard import get_zzfloating_merged_bin_indices
+        zz_bin_indices = get_zzfloating_merged_bin_indices(obsName, nBins)
+        if opt.PHYSICSMODEL == 'v2':
+            zz_pois = [
+                'zz_norm_%d_%s' %(index, channel)
+                for index in zz_bin_indices
+                for channel in ['4e', '4mu', '2e2mu']
+            ]
+        else:
+            zz_pois = ['zz_norm_%d' %index for index in zz_bin_indices]
 
 
     #nBins = len(observableBins)
@@ -295,7 +324,7 @@ def impactPlots(obsName):
         obsName = obsName + '_zzfloating'
 
     ### First step (Files from asimov and data have the same name)
-    cmd = 'combineTool.py -M Impacts -d ' + path['eos_path']+'combine_files/SM_125_all_13TeV_xs_'+obsName+'_bin_'+opt.PHYSICSMODEL+'_'+str(opt.YEAR)+'.root -m 125.38 --cminDefaultMinimizerStrategy 0 --doInitialFit --robustFit 1'
+    cmd = 'combineTool.py -M Impacts -d ' + path['eos_path']+'combine_files/SM_125_all_13TeV_xs_'+obsName+'_bin_'+opt.PHYSICSMODEL+'_'+str(opt.YEAR)+'.root -m 125.38 --cminDefaultMinimizerStrategy 0 --doInitialFit --robustFit 1' + NLL_RUNTIME_OPTION
     #if opt.NOK1K2: cmd += ' --freezeParameters K1Bin0,K2Bin0'
     cmd += ' --redefineSignalPOIs '
     for obsBin in range(nBins):
@@ -334,7 +363,7 @@ def impactPlots(obsName):
     output = processCmd(cmd)
 
     ### Second step (Files from asimov and data have the same name)
-    cmd = 'combineTool.py -M Impacts -d ' + path['eos_path']+'combine_files/SM_125_all_13TeV_xs_'+obsName+'_bin_'+opt.PHYSICSMODEL+'_'+str(opt.YEAR)+'.root -m 125.38 --cminDefaultMinimizerStrategy 0 --doFits --robustFit 1 --parallel 10'
+    cmd = 'combineTool.py -M Impacts -d ' + path['eos_path']+'combine_files/SM_125_all_13TeV_xs_'+obsName+'_bin_'+opt.PHYSICSMODEL+'_'+str(opt.YEAR)+'.root -m 125.38 --cminDefaultMinimizerStrategy 0 --doFits --robustFit 1 --parallel 10' + NLL_RUNTIME_OPTION
     #if opt.NOK1K2: cmd += ' --freezeParameters K1Bin0,K2Bin0'
     cmd += ' --redefineSignalPOIs '
     for obsBin in range(nBins):
@@ -407,6 +436,18 @@ def impactPlots(obsName):
             print('---------------------------')
             cmds.append(cmd)
             # output = processCmd(cmd) # spencer
+
+        if zz_pois:
+            run_special_impact(
+                obsName,
+                None,
+                zz_pois,
+                'zzPOIs',
+                'MH=125.38,'+cmd_XSEC,
+                opt.UNBLIND,
+                physics_model='v3',
+                poi_bounds=None
+            )
 
         if opt.DO_VBF:
             if obsName_base != 'absdetajj_mjj' or nBins != 4:
@@ -486,6 +527,18 @@ def impactPlots(obsName):
             cmds.append(cmd)
             #output = processCmd(cmd)
 
+        if zz_pois:
+            run_special_impact(
+                obsName,
+                None,
+                zz_pois,
+                'zzPOIs',
+                'MH=125.38,'+cmd_XSEC,
+                opt.UNBLIND,
+                physics_model='v2',
+                poi_bounds=None
+            )
+
     elif opt.PHYSICSMODEL=='v4':
         for nBin in range(nBins):
             # for obsBin in ['2e2muBin'+str(nBin),'4lBin'+str(nBin)]:
@@ -523,6 +576,18 @@ def impactPlots(obsName):
                 print('---------------------------')
                 cmds.append(cmd)
                 #output = processCmd(cmd)
+
+        if zz_pois:
+            run_special_impact(
+                obsName,
+                None,
+                zz_pois,
+                'zzPOIs',
+                'MH=125.38,'+cmd_XSEC,
+                opt.UNBLIND,
+                physics_model='v4',
+                poi_bounds=None
+            )
 
 
 # ----------------- Main -----------------

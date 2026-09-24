@@ -203,64 +203,65 @@ DOUBLE_DIFF_CUSTOM_XTICKS = {
 }
 
 PVALUE_MAP = {
-    #"mass4l": 0.97, #FINAL
-    "mass4l": 0.84, # WITH K1 K2
-    "pT4l": 0.87, #FINAL
-    "rapidity4l": 0.72, #FINAL
-    "massZ1": 0.87, #FINAL
-    "massZ2": 0.83, #FINAL
-    "costhetaZ1": 0.84, #FINAL
-    "costhetaZ2": 0.28, #FINAL
-    "costhetastar": 0.84, #FINAL
-    "phi": 0.15, #FINAL
-    "phi1": 0.4, #FINAL
-    "pTj1": 0.25, #FINAL
-    "pTj2": 0.99, #FINAL
-    "Nj": 0.99, #FINAL
-    "mjj": 0.99, #FINAL
-    "absdetajj": 0.81, #FINAL
-    "dphijj": 0.98, #FINAL
-    "mHj": 0.42, #FINAL
-    "pTHj": 0.32, #FINAL
-    "pTHjj": 0.79, #FINAL
-    "TCjmax": 0.86, #FINAL
-    "TBjmax": 0.79, #FINAL
-    "rapidity4l_pT4l": 0.33, #FINAL
-    "pT4l_pTHj": 0.15, #FINAL
-    "massZ1_massZ2": 0.63, #FINAL
-    "pTj1_pTj2": 0.89, #FINAL
-    "absdetajj_mjj": 0.72, #FINAL
-    "Nj_pT4l": 0.92, #FINAL
-    "TCjmax_pT4l": 0.92, #FINAL
-    
-    "mass4l_zzfloating": 0.97,
-    "pT4l_zzfloating": 0.77,
-    "rapidity4l_zzfloating": 0.86,
-    "massZ1_zzfloating": 0.71,
-    "massZ2_zzfloating": 0.87,
-    "costhetaZ1_zzfloating": 0.85,
-    "costhetaZ2_zzfloating": 0.29,
-    "costhetastar_zzfloating": 0.83,
-    "phi_zzfloating": 0.17,
-    "phi1_zzfloating": 0.43,
-    "pTj1_zzfloating": 0.06,
-    "pTj2_zzfloating": 0.68,
-    "Nj_zzfloating": 0.47,
-    "mjj_zzfloating": 0.99,
-    "absdetajj_zzfloating": 0.58,
-    "dphijj_zzfloating": 0.95,
-    "mHj_zzfloating": 0.25,
-    "pTHj_zzfloating": 0.45,
-    "pTHjj_zzfloating": 0.55,
-    "TCjmax_zzfloating": 0.81,
-    "TBjmax_zzfloating": 0.66,
-    "rapidity4l_pT4l_zzfloating": 0.3,
-    "pT4l_pTHj_zzfloating": 0.05,
+    # Recomputed via fit/pvalues.py --year Run3 (2026-09-22, after the full
+    # step3-6 data redo this session).
+    "mass4l": 0.98, # 0.89 with K
+    "pT4l": 0.86,
+    "rapidity4l": 0.77,
+    "massZ1": 0.9,
+    "massZ2": 0.86,
+    "costhetaZ1": 0.84,
+    "costhetaZ2": 0.34,
+    "costhetastar": 0.83,
+    "phi": 0.19,
+    "phi1": 0.44,
+    "pTj1": 0.14,
+    "pTj2": 0.82,
+    "Nj": 0.92,
+    "mjj": 0.85,
+    "absdetajj": 0.5,
+    "dphijj": 0.8,
+    "mHj": 0.29,
+    "pTHj": 0.53,
+    "pTHjj": 0.55,
+    "TCjmax": 0.99,
+    "TBjmax": 0.94,
+    "rapidity4l_pT4l": 0.33,
+    "pT4l_pTHj": 0.15,
+    "massZ1_massZ2": 0.65,
+    "pTj1_pTj2": 0.94,
+    "absdetajj_mjj": 0.55,
+    "Nj_pT4l": 0.72,
+    "TCjmax_pT4l": 0.95,
+
+    "mass4l_zzfloating": 0.98, # 0.86 with K
+    "pT4l_zzfloating": 0.73,
+    "rapidity4l_zzfloating": 0.88,
+    "massZ1_zzfloating": 0.73,
+    "massZ2_zzfloating": 0.88,
+    "costhetaZ1_zzfloating": 0.86,
+    "costhetaZ2_zzfloating": 0.34,
+    "costhetastar_zzfloating": 0.84,
+    "phi_zzfloating": 0.21,
+    "phi1_zzfloating": 0.48,
+    "pTj1_zzfloating": 0.04,
+    "pTj2_zzfloating": 0.53,
+    "Nj_zzfloating": 0.42,
+    "mjj_zzfloating": 0.67,
+    "absdetajj_zzfloating": 0.28,
+    "dphijj_zzfloating": 0.64,
+    "mHj_zzfloating": 0.15,
+    "pTHj_zzfloating": 0.76,
+    "pTHjj_zzfloating": 0.34,
+    "TCjmax_zzfloating": 0.96,
+    "TBjmax_zzfloating": 0.84,
+    "rapidity4l_pT4l_zzfloating": 0.26,
+    "pT4l_pTHj_zzfloating": 0.08,
     "massZ1_massZ2_zzfloating": 0.52,
-    "pTj1_pTj2_zzfloating": 0.56,
-    "absdetajj_mjj_zzfloating": 0.97,
-    "Nj_pT4l_zzfloating": 0.96,
-    "TCjmax_pT4l_zzfloating": 0.83,
+    "pTj1_pTj2_zzfloating": 0.69,
+    "absdetajj_mjj_zzfloating": 0.87,
+    "Nj_pT4l_zzfloating": 0.89,
+    "TCjmax_pT4l_zzfloating": 0.88,
 }
 
 def reorder_legend(handles, labels):

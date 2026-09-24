@@ -1,7 +1,58 @@
 import os,sys
 from numpy import array, float32 # spencer
+from observables import observables
 
 PROD_MODES = ['ggH', 'VBFH', 'WH', 'ZH', 'ttH']
+
+# ZX normalization variations.  The appropriate entry is selected from the
+# event's jet category and CR final state in RunTemplates.py.  The datacard
+# keeps a single bkg_zjets process, so the component variations are combined
+# into a reco-bin-specific effective lnN below.
+ZX_JET_UNCERTAINTIES = {
+    '0j1j': {
+        '2022':         {'4mu': (0.661, 1.338), '4e': (0.585, 1.447), '2e2mu': (0.653, 1.348), '2mu2e': (0.587, 1.444)},
+        '2022EE':       {'4mu': (0.685, 1.314), '4e': (0.632, 1.382), '2e2mu': (0.686, 1.313), '2mu2e': (0.633, 1.381)},
+        '2023preBPix':  {'4mu': (0.679, 1.321), '4e': (0.604, 1.421), '2e2mu': (0.677, 1.323), '2mu2e': (0.607, 1.418)},
+        '2023postBPix': {'4mu': (0.659, 1.343), '4e': (0.618, 1.401), '2e2mu': (0.646, 1.355), '2mu2e': (0.615, 1.405)},
+        '2024':         {'4mu': (0.696, 1.304), '4e': (0.678, 1.324), '2e2mu': (0.695, 1.305), '2mu2e': (0.678, 1.323)},
+    },
+    '2j': {
+        '2022':         {'4mu': (0.515, 1.551), '4e': (0.332, 1.911), '2e2mu': (0.527, 1.535), '2mu2e': (0.329, 1.916)},
+        '2022EE':       {'4mu': (0.615, 1.405), '4e': (0.488, 1.604), '2e2mu': (0.613, 1.407), '2mu2e': (0.490, 1.601)},
+        '2023preBPix':  {'4mu': (0.603, 1.422), '4e': (0.426, 1.715), '2e2mu': (0.598, 1.427), '2mu2e': (0.426, 1.716)},
+        '2023postBPix': {'4mu': (0.528, 1.533), '4e': (0.396, 1.775), '2e2mu': (0.529, 1.530), '2mu2e': (0.395, 1.775)},
+        '2024':         {'4mu': (0.674, 1.329), '4e': (0.554, 1.494), '2e2mu': (0.674, 1.329), '2mu2e': (0.554, 1.493)},
+    },
+}
+
+def zx_effective_uncertainty(fractionsBackground, jet_category, year,
+                             channel, obsName, obsBin):
+    """Return the effective down/up ZX lnN for one jet category.
+
+    Component fractions are relative to the complete ZX yield in this reco
+    bin.  Components outside ``jet_category`` remain nominal, hence
+    k_eff = 1 + sum(component_fraction * (k_component - 1)).
+    """
+    cr_final_states = ['4e'] if channel == '4e' else (
+        ['4mu'] if channel == '4mu' else ['2e2mu', '2mu2e'])
+    effective_down = 1.0
+    effective_up = 1.0
+    varied_fraction = 0.0
+    for cr_final_state in cr_final_states:
+        key = ('ZJetsCR_component_'+jet_category+'_'+cr_final_state+'_'+
+               channel+'_'+obsName+'_recobin'+str(obsBin))
+        if key not in fractionsBackground:
+            raise KeyError(
+                'Missing %s. Rerun RunTemplates.py to produce jet-resolved '
+                'ZX uncertainty inputs.' % key)
+        component_fraction = fractionsBackground[key]
+        down, up = ZX_JET_UNCERTAINTIES[jet_category][year][cr_final_state]
+        effective_down += component_fraction * (down - 1.0)
+        effective_up += component_fraction * (up - 1.0)
+        varied_fraction += component_fraction
+    if varied_fraction == 0.0:
+        return '-'
+    return '%.6g/%.6g' % (effective_down, effective_up)
 
 ZZFLOATING_BIN_MERGES = {
     # Specify zzfloating-only bin merging for variables here.
@@ -101,7 +152,30 @@ def fixJes(jesnp, jes_evts_noWeight):
             '''
             return jesnp+' '
 
-def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalModel, prodMode, year, nData, jes, lowerBound, upperBound, yearSetting, pileup=False):
+def pileupObservableKey(obsName):
+    """Return the reco-branch portion used in RunPileup dictionary keys."""
+    obsName_base = obsName.replace('_zzfloating', '')
+    matching_names = [name for name in observables
+                      if name.replace(' vs ', '_') == obsName_base]
+    if len(matching_names) != 1:
+        raise KeyError("Cannot map pileup observable %r to observables.py" % obsName)
+
+    observable = observables[matching_names[0]]
+    reco_names = [observable['obs_reco']]
+    if 'obs_reco_2nd' in observable:
+        reco_names.append(observable['obs_reco_2nd'])
+    return '_'.join(reco_names)
+
+def jesObservableKey(obsName):
+    """Return the observable token used in the generated JES dictionaries."""
+    obsName_jes = obsName.replace('_zzfloating', '')
+    if obsName_jes.startswith('TCjmax'):
+        obsName_jes = obsName_jes.replace('TCjmax', 'TCjMax', 1)
+    elif obsName_jes.startswith('TBjmax'):
+        obsName_jes = obsName_jes.replace('TBjmax', 'TBjMax', 1)
+    return obsName_jes.replace('pT4l', 'ZZPt')
+
+def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalModel, prodMode, year, nData, jes, lowerBound, upperBound, yearSetting, pileup=False, zzuncs=False, rawObsName=None):
     # Name of the bin (aFINALSTATE_ recobinX)
     if(channel == '4mu'): channelNumber = 1
     if(channel == '4e'): channelNumber = 2
@@ -112,7 +186,9 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
     else: zzfloating = False
 
     obsName_base = obsName.replace('_zzfloating', '')
-    if '_' in obsName_base and not 'kL' in obsName_base and not obsName_base == 'Nj': #it means it is a double differential measurement
+    # Double-differential binning is stored as a dictionary of four boundaries.
+    # Do not infer this from underscores: names such as Nj_2p5 are still 1D.
+    if isinstance(observableBins, dict):
         _recobin = str(observableBins[obsBin][0]).replace('.', 'p').replace('-','m')+'_'+str(observableBins[obsBin][1]).replace('.', 'p').replace('-','m')+'_'+str(observableBins[obsBin][2]).replace('.', 'p').replace('-','m')+'_'+str(observableBins[obsBin][3]).replace('.', 'p').replace('-','m')
     else:
         _recobin = str(observableBins[obsBin]).replace('.', 'p').replace('-','m')+'_'+str(observableBins[obsBin+1]).replace('.', 'p').replace('-','m')
@@ -468,7 +544,7 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
     if physicalModel == 'v3':
         for signalProdMode in signalProdModes:
             for i in range(nBins):
-                if '_' in obsName_base and not 'kL' in obsName_base and not obsName_base == 'Nj':
+                if isinstance(observableBins, dict):
                     boundaryName = '_'+str(observableBins[i][0]).replace('.', 'p').replace('-','m')+'_'+str(observableBins[i][1]).replace('.', 'p').replace('-','m')+'_'+str(observableBins[i][2]).replace('.', 'p').replace('-','m')+'_'+str(observableBins[i][3]).replace('.', 'p').replace('-','m')
                 elif observableBins[i+1] > 1000:
                     boundaryName = '_GT'+str(int(observableBins[i]))
@@ -496,8 +572,8 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
     if zzfloating:
         file.write('1 1 '+str(expected_yield[year,'ZX',channel])+'\n')
     else:
-        print(year)
-        print(expected_yield[year,'qqzz',channel])
+        #print(year)
+        #print(expected_yield[year,'qqzz',channel])
         file.write(str(expected_yield[year,'qqzz',channel])+' '+str(expected_yield[year,'ggzz',channel])+' '+str(expected_yield[year,'ZX',channel])+'\n')
     file.write('------------ \n')
 
@@ -518,7 +594,7 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
                     zz_yield = 1.0
             else:
                 zz_yield = 1.0
-            min_range_zz = -5.0 * zz_yield
+            min_range_zz = 0.0
             max_range_zz = 5.0 * zz_yield
             file.write('zz_norm_'+str(merge_index)+' rateParam '+binName+' bkg_*zz '+str(zz_yield)+' ['+str(min_range_zz)+','+str(max_range_zz)+']\n')
 
@@ -536,7 +612,7 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
                     zz_yield = 1.0
             else:
                 zz_yield = 1.0
-            min_range = -5.0 * zz_yield
+            min_range = 0.0
             max_range = 5.0 * zz_yield
             file.write('zz_norm_'+str(merge_index)+'_'+channel+' rateParam '+binName+' bkg_*zz '+str(zz_yield)+' ['+str(min_range)+','+str(max_range)+']\n')
 
@@ -646,7 +722,7 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
             file.write('-\n') # ZX
 
     # BR uncertainties 
-    #''' 
+    ''' 
     if physicalModel == 'v3':
         # In v3, apply BR uncertainties only to the corresponding final state
         file.write('BR_hzz4e lnN ')
@@ -699,7 +775,7 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
             else:
                 file.write('- ')
         file.write('- - -\n')
-    #'''
+    '''
 
     # Lepton efficiency
 
@@ -764,12 +840,26 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
             file.write(trig_e[year+'_'+channel]+' ')
         file.write('-\n')
 
-    # ZX
-    file.write('CMS_HIG25015_hzz'+channel+'_Zjets_'+year+' lnN ')
-    # for i in range(nBins+4): # All except ZX
-    for i in range(nSignalColumns+4): # All except ZX
-        file.write('- ')
-    file.write(ZX[year+'_'+channel]+'\n')
+    # ZX: independently vary the 0/1-jet and >=2-jet contributions.  Each
+    # factor is diluted by that category's fraction of the ZX yield in this
+    # reconstructed bin.  For 2e2mu, the distinct 2e2mu and 2mu2e CR factors
+    # are combined using their actual event-weighted fractions.
+    zx_jet_categories = (
+        ['0j1j', '2j'] if year in ZX_JET_UNCERTAINTIES['0j1j'] else [])
+    for jet_category in zx_jet_categories:
+        file.write('CMS_HIG25015_hzz'+channel+'_Zjets_'+jet_category+'_'+year+' lnN ')
+        for i in range(nSignalColumns+4): # All except ZX
+            file.write('- ')
+        file.write(zx_effective_uncertainty(
+            fractionsBackground, jet_category, year, channel,
+            obsName, obsBin)+'\n')
+    if not zx_jet_categories:
+        # Preserve the established inclusive treatment for Run-2, for which no
+        # jet-resolved inputs were supplied.
+        file.write('CMS_HIG25015_hzz'+channel+'_Zjets_'+year+' lnN ')
+        for i in range(nSignalColumns+4): # All except ZX
+            file.write('- ')
+        file.write(ZX[year+'_'+channel]+'\n')
 
     # Gaussian-constrained nuisance parameter , SMEARING systematic uncertainties
     if(channelNumber != 2):
@@ -781,28 +871,29 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
 
     file.write('CMS_HIG25015_zz4l_n_sig_'+str(channelNumber)+'_'+year+' param 0.0 0.05\n')
 
-    # Theoretical at 13.6 TeV taken from https://twiki.cern.ch/twiki/bin/view/LHCPhysics/LHCHWG136TeVxsec_extrap
-    if not zzfloating:
-        file.write('QCDscale_ggVV lnN ')
-        for i in range(nSignalColumns+3): # Signal + out + fake + qqzz
-            file.write('- ')
-        file.write('1.039/0.961 -\n') #ggF (N3LO QCD + NLO EW), TH Gaussian % (+-3.9%)
-        file.write('QCDscale_VV lnN ')
-        for i in range(nSignalColumns+2): # Signal + out + fake
-            file.write('- ')
-        file.write('1.0325/0.958 - -\n')
-        file.write('pdf_gg lnN ')
-        for i in range(nSignalColumns+3): # Signal + out + fake + qqzz
-            file.write('- ')
-        file.write('1.032/0.968 -\n') #ggF (N3LO QCD + NLO EW), PDF+as% (+-3.2%)
-        file.write('pdf_qqbar lnN ')
-        for i in range(nSignalColumns+2): # Signal + out + fake
-            file.write('- ')
-        file.write('1.031/0.966 - -\n')
-        file.write('CMS_HIG25015_kfactor_ggzz lnN ')
-        for i in range(nSignalColumns+3): # Signal + out + fake  + bkg_qqzz
-            file.write('- ')
-        file.write('1.1 -\n')
+    # qqZZ theory nuisances are embedded in the workspace: each parameter drives
+    # both the m4l RooHistPdf morph and its correlated per-bin normalization.
+    if zzuncs:
+        for source in ['QCDscale', 'pdf', 'alphaS']:
+            file.write('%s_qqZZ param 0.0 1.0\n' % source)
+
+        # The MCFM ggZZ samples do not carry LHE scale/PDF weights, so retain
+        # the original inclusive uncertainties for the fixed-normalisation fit.
+        if not zzfloating:
+            file.write('QCDscale_ggVV lnN ')
+            for i in range(nSignalColumns + 3):
+                file.write('- ')
+            file.write('1.039/0.961 -\n')
+            file.write('pdf_gg lnN ')
+            for i in range(nSignalColumns + 3):
+                file.write('- ')
+            file.write('1.032/0.968 -\n')
+
+    # Keep the ggZZ k-factor uncertainty for fixed and floating ZZ models.
+    file.write('CMS_HIG25015_kfactor_ggzz lnN ')
+    for i in range(nSignalColumns+3): # Signal + out + fake + bkg_qqzz
+        file.write('- ')
+    file.write('1.1 -\n')
 
     # JES
     if jes == True:
@@ -812,23 +903,17 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
         if year == "2023postBPix":
             year = "2023BPix"
 
-        # Remove zzfloating suffix first, before applying name transformations
-        obsName_for_jes = obsName.replace('_zzfloating', '') if 'zzfloating' in obsName else obsName
-
-        if obsName_for_jes == "TCjmax": obsName_jes = "TCjMax"
-        elif obsName_for_jes == "TBjmax": obsName_jes = "TBjMax"
-        elif obsName_for_jes == "TCjmax_pT4l": obsName_jes = "TCjMax_ZZPt"
-        else: obsName_jes = obsName_for_jes
+        obsName_jes = jesObservableKey(obsName)
 
         for index,jesName in enumerate(jesNames_datacard):
             file.write('CMS_scale_j_'+jesName+' lnN ')
             for i in range(nSignalColumns+2): # Signals + out + fake
-                file.write(str(fixJes(jesnp['signal_'+jesNames_datacard[index]+'_'+channel+'_'+year_for_jes_keys+'_'+obsName_jes.replace('pT4l', 'ZZPt')+'_recobin'+str(obsBin)],
-                                      jes_evts_noWeight['signal_'+jesNames_datacard[index]+'_'+channel+'_'+year_for_jes_keys+'_'+obsName_jes.replace('pT4l', 'ZZPt')+'_recobin'+str(obsBin)])))
-            file.write(str(fixJes(jesnp['qqzz_'+jesNames_datacard[index]+'_'+channel+'_'+year_for_jes_keys+'_'+obsName_jes.replace('pT4l', 'ZZPt')+'_recobin'+str(obsBin)],
-                                jes_evts_noWeight['qqzz_'+jesNames_datacard[index]+'_'+channel+'_'+year_for_jes_keys+'_'+obsName_jes.replace('pT4l', 'ZZPt')+'_recobin'+str(obsBin)])))
-            file.write(str(fixJes(jesnp['ggzz_'+jesNames_datacard[index]+'_'+channel+'_'+year_for_jes_keys+'_'+obsName_jes.replace('pT4l', 'ZZPt')+'_recobin'+str(obsBin)],
-                                jes_evts_noWeight['ggzz_'+jesNames_datacard[index]+'_'+channel+'_'+year_for_jes_keys+'_'+obsName_jes.replace('pT4l', 'ZZPt')+'_recobin'+str(obsBin)])))
+                file.write(str(fixJes(jesnp['signal_'+jesNames_datacard[index]+'_'+channel+'_'+year_for_jes_keys+'_'+obsName_jes+'_recobin'+str(obsBin)],
+                                      jes_evts_noWeight['signal_'+jesNames_datacard[index]+'_'+channel+'_'+year_for_jes_keys+'_'+obsName_jes+'_recobin'+str(obsBin)])))
+            file.write(str(fixJes(jesnp['qqzz_'+jesNames_datacard[index]+'_'+channel+'_'+year_for_jes_keys+'_'+obsName_jes+'_recobin'+str(obsBin)],
+                                jes_evts_noWeight['qqzz_'+jesNames_datacard[index]+'_'+channel+'_'+year_for_jes_keys+'_'+obsName_jes+'_recobin'+str(obsBin)])))
+            file.write(str(fixJes(jesnp['ggzz_'+jesNames_datacard[index]+'_'+channel+'_'+year_for_jes_keys+'_'+obsName_jes+'_recobin'+str(obsBin)],
+                                jes_evts_noWeight['ggzz_'+jesNames_datacard[index]+'_'+channel+'_'+year_for_jes_keys+'_'+obsName_jes+'_recobin'+str(obsBin)])))
             #file.write(str(fixJes(jesnp['ZX_'+jesNames[index]+'_'+channel+'_'+year+'_'+obsName.replace('pT4l', 'ZZPt')+'_recobin'+str(obsBin)],
             #                      jes_evts_noWeight['ZX_'+jesNames[index]+'_'+channel+'_'+year+'_'+obsName.replace('pT4l', 'ZZPt')+'_recobin'+str(obsBin)]))+'\n')
 
@@ -844,15 +929,8 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
 
     # Pileup weight
     if pileup == True:
-
-        obsName_for_pileup = obsName.replace('_zzfloating', '') if 'zzfloating' in obsName else obsName
-
-        if obsName_for_pileup == "TCjmax": obsName_pileup = "TCjMax"
-        elif obsName_for_pileup == "TBjmax": obsName_pileup = "TBjMax"
-        elif obsName_for_pileup == "TCjmax_pT4l": obsName_pileup = "TCjMax_ZZPt"
-        else: obsName_pileup = obsName_for_pileup
-
-        pileup_key = channel+'_'+year_for_pileup_keys+'_'+obsName_pileup.replace('pT4l', 'ZZPt')+'_recobin'+str(obsBin)
+        pileup_key = (channel + '_' + year_for_pileup_keys + '_' +
+                      pileupObservableKey(obsName) + '_recobin' + str(obsBin))
 
         file.write('CMS_pileup_'+year_for_pileup_keys+' lnN ')
         for i in range(nSignalColumns+2): # Signals + out + fake
@@ -1060,7 +1138,7 @@ def createDatacard_ggH(obsName, channel, nBins, obsBin, observableBins, physical
     file.write('\n')
     obsName_base = obsName.replace('_zzfloating', '')
     file.write('process ')
-    if '_' in obsName_base and not 'kL' in obsName_base and not obsName_base == 'Nj':
+    if isinstance(observableBins, dict):
         for i in range(nBins):
             file.write(processName+'_'+str(observableBins[i][0]).replace('.', 'p').replace('-','m')+'_'+str(observableBins[i][1]).replace('.', 'p').replace('-','m')+'_'+str(observableBins[i][2]).replace('.', 'p').replace('-','m')+'_'+str(observableBins[i][3]).replace('.', 'p').replace('-','m')+' ')
         for i in range(nBins):

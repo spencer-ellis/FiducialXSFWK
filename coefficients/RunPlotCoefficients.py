@@ -406,7 +406,8 @@ if(obs_name == 'rapidity4l'):
     label = '$|y_{4\ell}|$'
 elif(obs_name == 'pT4l'):
     label = '$p^T_{4\ell}$'
-elif(obs_name == 'pT4l_pTHj'):
+elif(obs_name == 'pT4l vs pTHj'):
+    obs_name = 'pT4l_pTHj' #Change name of obs_name
     label = '$p^T_{4\ell}$ vs $p^T_{Hj}$'
 elif(obs_name == 'massZ1'):
     label = '$m_{Z_1}$'
@@ -417,7 +418,7 @@ elif (obs_name == "Nj"):
 elif(obs_name == 'Nj vs pT4l'):
     obs_name = 'Nj_pT4l' #Change name of obs_name
     label = '$N_{jet}$ vs $p^T_{4\ell}$[GeV]'
-elif(obs_name == 'massZ1_massZ2'):
+elif(obs_name == 'massZ1 vs massZ2'):
     obs_name = 'massZ1_massZ2' #Change name of obs_name
     label = '$m_{Z1}$[GeV] vs. $m_{Z2}$[GeV]'
 elif(obs_name == 'D0m'):
@@ -463,17 +464,18 @@ elif(obs_name == 'mjj'):
     label = '$m_{jj}$'
 elif(obs_name == 'dphijj'):
     label = '$\Delta\Phi_{jj}$'
-elif(obs_name == 'rapidity4l_pT4l'):
+elif(obs_name == 'rapidity4l vs pT4l'):
+    obs_name = 'rapidity4l_pT4l' #Change name of obs_name
     label = '$|y_H|$ vs. $p^T_{4\ell}$[GeV]'
 elif(obs_name == 'TCjmax'):
     label = '$\mathcal{T}_{C}^{max}$'
 elif(obs_name == 'TBjmax'):
     label = '$\mathcal{T}_{B}^{max}$'
-elif(obs_name == 'TCjmax_pT4l'):
-    obs_name = 'TCjmax_pT4l' 
+elif(obs_name == 'TCjmax vs pT4l'):
+    obs_name = 'TCjmax_pT4l'
     label = '$\mathcal{T}_{C}^{max}$[GeV] vs. $p^T_{4\ell}$[GeV]'
-elif(obs_name == 'absdetajj_mjj'):
-    obs_name = 'absdetajj_mjj' 
+elif(obs_name == 'absdetajj vs mjj'):
+    obs_name = 'absdetajj_mjj'
     label = '$|\Delta\eta_{jj}|$ vs. $m_{jj}$[GeV]'
 else:
     label = ''

@@ -22,6 +22,8 @@ from paths import path
 sys.path.append('../inputs/')
 from higgs_xsbr_13TeV import *
 
+from createDatacard import get_zzfloating_merged_bin_indices
+
 
 def parseOptions():
 
@@ -79,7 +81,16 @@ def processCmd(cmd, quiet=False):
 
 def get_fit_name(obsName):
     obs_map = {'pT4l': 'PTH', 'rapidity4l': 'YH', 'pTj1': 'pTj1', 'Nj': 'Nj'}
+    if obsName.endswith('_zzfloating'):
+        base = obsName[:-len('_zzfloating')]
+        return obs_map.get(base, base) + '_zzfloating'
     return obs_map.get(obsName, obsName)
+
+def get_zznorm_pois(obsName, nBins):
+    # zz_norm bins can be coarser than the signal binning (see
+    # ZZFLOATING_BIN_MERGES in createDatacard.py), so the zz_norm POI count
+    # may be smaller than nBins.
+    return ['zz_norm_%d' %i for i in get_zzfloating_merged_bin_indices(obsName, nBins)]
 
 def get_vbf_correlation_configs(fitName, nBins):
     return [
@@ -174,7 +185,7 @@ def RunCombineCorrelation():
 
     for physicalModel in PhysicalModels:
         if physicalModel == 'v2': # In this case implemented for mass4l only (Mass-dependent fit using separate final states)
-            cmd = 'combine -n _'+obsName+'_'+physicalModel+' -M MultiDimFit ../combine_files/SM_125_all_13TeV_xs_'+obsName+'_bin_v2_'+str(opt.YEAR)+'.root -m 125.38 --freezeParameters MH --floatOtherPOIs=1 --saveWorkspace --setParameterRanges r4eBin0=0.0,2.5:r4muBin0=0.0,2.5:r2e2muBin0=0.0,2.5 --redefineSignalPOI r4eBin0,r4muBin0,r2e2muBin0 --algo=singles --cminDefaultMinimizerStrategy 0 --saveInactivePOI=1 --robustHesse 1 --robustHesseSave 1'
+            cmd = 'combine -n _'+obsName+'_'+physicalModel+' -M MultiDimFit ../combine_files/SM_125_all_13TeV_xs_'+obsName+'_bin_v2_'+str(opt.YEAR)+'.root -m 125.38 --freezeParameters MH --floatOtherPOIs=1 --saveWorkspace --saveFitResult --X-rtd ADDNLL_HISTNLL=0 --setParameterRanges r4eBin0=0.0,2.5:r4muBin0=0.0,2.5:r2e2muBin0=0.0,2.5 --redefineSignalPOI r4eBin0,r4muBin0,r2e2muBin0 --algo=singles --cminDefaultMinimizerStrategy 0 --saveInactivePOI=1 --robustHesse 1 --robustHesseSave 1'
 
             if not opt.UNBLIND:
                 cmd += ' -t -1 --setParameters '
@@ -193,7 +204,7 @@ def RunCombineCorrelation():
 
         if physicalModel == 'v4': #More granular 2e2mu and 4l bin-by-bin decomposition
             # ----- 2e2mu -----
-            cmd = 'combine -n _'+obsName+'_'+physicalModel+' -M MultiDimFit ' '../combine_files/SM_125_all_13TeV_xs_'+obsName+'_bin_v4_'+str(opt.YEAR)+'.root -m 125.38 --freezeParameters MH --floatOtherPOIs=1 --saveWorkspace --algo=singles --cminDefaultMinimizerStrategy 0 --saveInactivePOI=1 --robustHesse 1 --robustHesseSave 1 --setParameterRanges '
+            cmd = 'combine -n _'+obsName+'_'+physicalModel+' -M MultiDimFit ' '../combine_files/SM_125_all_13TeV_xs_'+obsName+'_bin_v4_'+str(opt.YEAR)+'.root -m 125.38 --freezeParameters MH --floatOtherPOIs=1 --saveWorkspace --saveFitResult --X-rtd ADDNLL_HISTNLL=0 --algo=singles --cminDefaultMinimizerStrategy 0 --saveInactivePOI=1 --robustHesse 1 --robustHesseSave 1 --setParameterRanges '
 
             for obsBin in range(nBins):
                 cmd += 'r2e2muBin'+str(obsBin)+'=0.0,2.5:r4lBin'+str(obsBin)+'=0.0,2.5:'
@@ -240,32 +251,21 @@ def RunCombineCorrelation():
         elif physicalModel == 'v3':
             fitName = get_fit_name(obsName)
 
-            cmd = 'combine -n _'+obsName+'_'+physicalModel+' -M MultiDimFit ' '../combine_files/SM_125_all_13TeV_xs_'+obsName+'_bin_v3_'+str(opt.YEAR)+'.root -m 125.38 --freezeParameters MH --floatOtherPOIs=1 --saveWorkspace --algo=singles --cminDefaultMinimizerStrategy 0 --robustHesse 1 --robustHesseSave 1 --setParameterRanges '
-            for obsBin in range(nBins):
-                cmd += 'r_smH_'+fitName+'_'+str(obsBin)+'=0.0,5.0:'
-            cmd = cmd[:-1]
+            signal_pois = ['r_smH_'+fitName+'_'+str(obsBin) for obsBin in range(nBins)]
+            zznorm_pois = get_zznorm_pois(obsName, nBins) if 'zzfloating' in obsName else []
+            all_pois = signal_pois + zznorm_pois
+
+            cmd = 'combine -n _'+obsName+'_'+physicalModel+' -M MultiDimFit ' '../combine_files/SM_125_all_13TeV_xs_'+obsName+'_bin_v3_'+str(opt.YEAR)+'.root -m 125.38 --freezeParameters MH --floatOtherPOIs=1 --saveWorkspace --saveFitResult --X-rtd ADDNLL_HISTNLL=0 --algo=singles --cminDefaultMinimizerStrategy 0 --robustHesse 1 --robustHesseSave 1 --setParameterRanges '
+            cmd += ':'.join(['%s=0.0,5.0' %poi for poi in signal_pois])
             cmd += ' --redefineSignalPOI '
-            for obsBin in range(nBins):
-                cmd += 'r_smH_'+fitName+'_'+str(obsBin)+','
-            cmd = cmd[:-1]
+            cmd += ','.join(all_pois)
 
             if not opt.UNBLIND:
                 cmd += ' -t -1 --setParameters '
-                XH = []
-                for obsBin in range(nBins):
-                    # XH.append(0.0)
-                    # for channel in ['4e','4mu','2e2mu']:
-                    #     XH_fs = higgs_xs['ggH_'+opt.THEORYMASS]*higgs4l_br[opt.THEORYMASS+'_'+channel]*acc['ggH125_'+channel+'_'+obsName+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
-                    #     XH_fs += higgs_xs['VBF_'+opt.THEORYMASS]*higgs4l_br[opt.THEORYMASS+'_'+channel]*acc['VBFH125_'+channel+'_'+obsName+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
-                    #     XH_fs += higgs_xs['WH_'+opt.THEORYMASS]*higgs4l_br[opt.THEORYMASS+'_'+channel]*acc['WH125_'+channel+'_'+obsName+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
-                    #     XH_fs += higgs_xs['ZH_'+opt.THEORYMASS]*higgs4l_br[opt.THEORYMASS+'_'+channel]*acc['ZH125_'+channel+'_'+obsName+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
-                    #     XH_fs += higgs_xs['ttH_'+opt.THEORYMASS]*higgs4l_br[opt.THEORYMASS+'_'+channel]*acc['ttH125_'+channel+'_'+obsName+'_genbin'+str(obsBin)+'_recobin'+str(obsBin)]
-                    #     XH[obsBin]+=XH_fs
-                    #
-                    # _obsxsec = XH[obsBin]
-
-                    cmd += 'r_smH_'+fitName+'_'+str(obsBin)+'=1,'
-                cmd = cmd[:-1]
+                # zz_norm parameters already carry their nominal yield as the
+                # initial value declared on the rateParam in the datacard, so
+                # only the signal POIs need an explicit Asimov value here.
+                cmd += ','.join(['%s=1' %poi for poi in signal_pois])
             print(cmd, '\n')
             output = processCmd(cmd)
             # cmds.append(cmd)
@@ -286,7 +286,11 @@ DataModelName = 'SM_125'
 if obsName.startswith("mass4l"):
     PhysicalModels = ['v2','v3']
 elif obsName == 'D0m' or obsName == 'Dcp' or obsName == 'D0hp' or obsName == 'Dint' or obsName == 'DL1' or obsName == 'DL1Zg' or obsName == 'costhetaZ1' or obsName == 'costhetaZ2'or obsName == 'costhetastar' or obsName == 'phi' or obsName == 'phistar' or obsName == 'massZ1' or obsName == 'massZ2':
-    PhysicalModels = ['v3','v4']
+    # step3 (RunFiducialXS.py) only ever produces a v4 workspace for the
+    # double-differential massZ1_massZ2 combination -- these single 1D
+    # variables never get a "*_bin_v4_<year>.root" file, so requesting v4
+    # correlation here always fails with a missing-file error.
+    PhysicalModels = ['v3']
 else:
     PhysicalModels = ['v3']
 
@@ -323,5 +327,12 @@ acc = module.acc
 
 nBins = len(observableBins)
 if not doubleDiff: nBins = nBins-1 #in case of 1D measurement the number of bins is -1 the length of the list of bin boundaries
+
+# --ZZfloating takes the base obsName (used above to find the inputs file,
+# mirroring RunFiducialXS.py's obsName_for_inputs) and appends the suffix
+# here, after PhysicalModels/inputs are resolved, so it also works for
+# double-differential obsNames reconstructed from the "vs" splitting above.
+if opt.ZZ and not obsName.endswith('_zzfloating'):
+    obsName += '_zzfloating'
 
 RunCombineCorrelation()

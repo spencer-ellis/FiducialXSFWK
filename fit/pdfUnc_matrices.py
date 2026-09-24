@@ -222,14 +222,39 @@ def build_matrices(matrices_all_input, genbins, recobins):
                 # Create a 3D array: (n_indices, n_gen, n_reco)
                 mats = np.array([var_dict[var][idx] for idx in var_indices])
 
+                # Some gen/reco cells legitimately have no usable variation
+                # because every denominator for that cell is zero.  NumPy's
+                # nan* reductions emit warnings for those all-NaN slices.  Do
+                # the reductions explicitly so undefined cells remain NaN
+                # without hiding warnings from unrelated calculations.
+                finite = np.isfinite(mats)
+                valid_counts = finite.sum(axis=0)
+
                 if var == "pdf":
-                    # Compute RMS along the variation axis
-                    rms = np.sqrt(np.nanmean((mats - np.nanmean(mats, axis=0))**2, axis=0))
-                    matrices['pdf']['rms'] = rms
+                    # RMS about the mean of the available PDF variations.
+                    sums = np.where(finite, mats, 0.0).sum(axis=0)
+                    mean = np.full(mats.shape[1:], np.nan, dtype=float)
+                    np.divide(sums, valid_counts, out=mean, where=valid_counts > 0)
+
+                    squared_deviations = np.where(
+                        finite, (mats - mean[np.newaxis, ...]) ** 2, 0.0
+                    ).sum(axis=0)
+                    variance = np.full(mats.shape[1:], np.nan, dtype=float)
+                    np.divide(
+                        squared_deviations,
+                        valid_counts,
+                        out=variance,
+                        where=valid_counts > 0,
+                    )
+                    matrices['pdf']['rms'] = np.sqrt(variance)
                 else:
-                    # Compute max / min along the variation axis
-                    matrices[var]['max'] = np.nanmax(mats, axis=0)
-                    matrices[var]['min'] = np.nanmin(mats, axis=0)
+                    # Envelope of the available QCD/alphaS variations.
+                    max_values = np.where(finite, mats, -np.inf).max(axis=0)
+                    min_values = np.where(finite, mats, np.inf).min(axis=0)
+                    max_values[valid_counts == 0] = np.nan
+                    min_values[valid_counts == 0] = np.nan
+                    matrices[var]['max'] = max_values
+                    matrices[var]['min'] = min_values
 
             matrices_variation[prod][fs] = matrices
 

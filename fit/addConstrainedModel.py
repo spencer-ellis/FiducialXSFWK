@@ -62,6 +62,13 @@ def write_inputs_file(file_path, payload):
         for name in ordered_names:
             f.write(name+' = '+repr(payload[name])+' \n')
 
+def weighted_average(values, weights):
+    """Return zero for a bin with no predicted signal yield."""
+    total_weight = sum(weights)
+    if total_weight == 0.0:
+        return 0.0
+    return sum(value * weight for value, weight in zip(values, weights)) / total_weight
+
 grootargs = []
 def callback_rootargs(option, opt, value, parser):
     grootargs.append(opt)
@@ -193,12 +200,12 @@ for fState in fStates:
 
             
       
-            effsm = ggHxs/(ggHxs+VBFxs+WHxs+ZHxs+ttHxs)*max(eff['ggH125_'+fState+'_'+obsName+'_genbin'+str(genbin)+'_recobin'+str(recobin)],0.0)
-            #effsm = ggHxs/(ggHxs+VBFxs+WHxs+ZHxs+ttHxs)*max(eff['ggH_HRes_125_'+fState+'_'+obsName+'_genbin'+str(genbin)+'_recobin'+str(recobin)],0.0)
-            effsm += VBFxs/(ggHxs+VBFxs+WHxs+ZHxs+ttHxs)*max(eff['VBFH125_'+fState+'_'+obsName+'_genbin'+str(genbin)+'_recobin'+str(recobin)],0.0)
-            effsm += WHxs/(ggHxs+VBFxs+WHxs+ZHxs+ttHxs)*max(eff['WH125_'+fState+'_'+obsName+'_genbin'+str(genbin)+'_recobin'+str(recobin)],0.0)
-            effsm += ZHxs/(ggHxs+VBFxs+WHxs+ZHxs+ttHxs)*max(eff['ZH125_'+fState+'_'+obsName+'_genbin'+str(genbin)+'_recobin'+str(recobin)],0.0)
-            effsm += ttHxs/(ggHxs+VBFxs+WHxs+ZHxs+ttHxs)*max(eff['ttH125_'+fState+'_'+obsName+'_genbin'+str(genbin)+'_recobin'+str(recobin)],0.0)
+            signal_weights = [ggHxs, VBFxs, WHxs, ZHxs, ttHxs]
+            signal_efficiencies = [
+                max(eff[prod+'_'+fState+'_'+obsName+'_genbin'+str(genbin)+'_recobin'+str(recobin)], 0.0)
+                for prod in ['ggH125', 'VBFH125', 'WH125', 'ZH125', 'ttH125']
+            ]
+            effsm = weighted_average(signal_efficiencies, signal_weights)
 
             err_effsm = sqrt(err_eff['ggH125_'+fState+'_'+obsName+'_genbin'+str(genbin)+'_recobin'+str(recobin)]**2 +
                         err_eff['VBFH125_'+fState+'_'+obsName+'_genbin'+str(genbin)+'_recobin'+str(recobin)]**2 +
@@ -239,12 +246,10 @@ for fState in fStates:
                                 if ("jet" in obsName): f_ttH = 0.0
                                 if (f_ggH+f_VBF+f_WH+f_ttH <0.00001): continue
 
-                                tmp_eff = f_ggH*ggHxs/(f_ggH*ggHxs+f_VBF*VBFxs+f_WH*WHxs+f_ttH*ttHxs)*max(eff['ggH125_'+fState+'_'+obsName+'_genbin'+str(genbin)+'_recobin'+str(recobin)],0.0)
-                                #tmp_eff = f_ggH*ggHxs/(f_ggH*ggHxs+f_VBF*VBFxs+f_WH*WHxs+f_ttH*ttHxs)*max(eff['ggH_HRes_125_'+fState+'_'+obsName+'_genbin'+str(genbin)+'_recobin'+str(recobin)],0.0)
-                                tmp_eff += f_VBF*VBFxs/(f_ggH*ggHxs+f_VBF*VBFxs+f_WH*WHxs+f_ttH*ttHxs)*max(eff['VBFH125_'+fState+'_'+obsName+'_genbin'+str(genbin)+'_recobin'+str(recobin)],0.0)
-                                tmp_eff += f_WH*WHxs/(f_ggH*ggHxs+f_VBF*VBFxs+f_WH*WHxs+f_ttH*ttHxs)*max(eff['WH125_'+fState+'_'+obsName+'_genbin'+str(genbin)+'_recobin'+str(recobin)],0.0)
-                                tmp_eff += f_ZH*ZHxs/(f_ggH*ggHxs+f_VBF*VBFxs+f_WH*WHxs+f_ZH*ZHxs+f_ttH*ttHxs)*max(eff['ZH125_'+fState+'_'+obsName+'_genbin'+str(genbin)+'_recobin'+str(recobin)],0.0)
-                                tmp_eff += f_ttH*ttHxs/(f_ggH*ggHxs+f_VBF*VBFxs+f_WH*WHxs+f_ttH*ttHxs)*max(eff['ttH125_'+fState+'_'+obsName+'_genbin'+str(genbin)+'_recobin'+str(recobin)],0.0)
+                                tmp_eff = weighted_average(
+                                    signal_efficiencies,
+                                    [f_ggH*ggHxs, f_VBF*VBFxs, f_WH*WHxs, f_ZH*ZHxs, f_ttH*ttHxs],
+                                )
 
                                 tmp_outin = f_ggH*ggHxs_allgen*fout_ggH/(f_ggH*ggHxs_allgen+f_VBF*VBFxs_allgen+f_WH*WHxs_allgen+f_ttH*ttHxs_allgen)
                                 tmp_outin += f_VBF*VBFxs_allgen*fout_VBF/(f_ggH*ggHxs_allgen+f_VBF*VBFxs_allgen+f_WH*WHxs_allgen+f_ttH*ttHxs_allgen)

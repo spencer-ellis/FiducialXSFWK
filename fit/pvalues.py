@@ -296,7 +296,7 @@ class combineCommand():
                 
     def init_command(self):
         self.command = f'combine -M MultiDimFit {self.ws} --algo={self.algo} -n {self.output} '
-        self.command += '-m 125.38 --saveWorkspace'
+        self.command += '-m 125.38 --saveWorkspace --X-rtd ADDNLL_HISTNLL=0'
 
     def combine_poi_name(self, poi):
         obs_name = self.obs_name.replace("_zzfloating", "")
@@ -399,9 +399,10 @@ if __name__ == '__main__':
   jets = ['pTj1', 'pTj2', 'Nj', 'mjj', 'absdetajj','dphijj', 'mHj', 'pTHj', 'pTHjj', 'TCjmax', 'TBjmax']
   doubles = ['rapidity4l_pT4l', 'pT4l_pTHj', 'massZ1_massZ2', 'pTj1_pTj2', 'absdetajj_mjj', 'Nj_pT4l', 'TCjmax_pT4l'] # 'Nj_pT4l'
 
-  vars =  mass4l# + leps + angles + jets + doubles
+  #vars =  mass4l + leps + angles + jets + doubles
   #vars = [ 'rapidity4l', 'TCjmax', 'pTj1']
-
+  vars = mass4l
+  
   print(len(vars))
 
   if opt.ZZFLOATING:
