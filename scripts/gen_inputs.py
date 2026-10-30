@@ -7,23 +7,24 @@ DO_SPLIT = False
 
 #obsNames=["mass4l", "pT4l", "rapidity4l", "massZ1", "massZ2", "pTj1", "pTj2", "Nj", "mjj", "absdetajj", "dphijj", "pTHj", "pTHjj", "mHj", "TCjmax", "TBjmax", "massZ1_massZ2", "rapidity4l_pT4l", "pTj1_pTj2", "Nj_pT4l", "pT4l_pTHj", "absdetajj_mjj", "TCjmax_pT4l", "phi", "phi1", "costhetaZ1", "costhetaZ2", "costhetastar"]   
 
-obsNames=["mass4l"]
+#obsNames=["mass4l"]
 #obsNames=["pT4l", "rapidity4l", "massZ1", "massZ2"]
 #obsNames=["phi", "phi1", "costhetaZ1", "costhetaZ2", "costhetastar"]
 #obsNames=["pTj1", "pTj2", "mjj", "absdetajj", "dphijj", "pTHj", "pTHjj", "mHj", "TCjmax", "TBjmax", "Nj"]
 #obsNames=["pTj1_pTj2", "pT4l_pTHj", "absdetajj_mjj", "TCjmax_pT4l", "Nj_pT4l", "rapidity4l_pT4l", "massZ1_massZ2"]
 
-#obsNames=["mjj"]
+#obsNames=["Nj"]
 #obsNames=["mjj", "mjj_2p5", "mjj_4p7"]
 
 #obsNames=["mass4l", "pT4l", "rapidity4l", "Nj", "mjj", "absdetajj", "TCjmax", "pTj1"]
-#obsNames=["absdetajj_mjj"]
-#obsNames=["pT4l","TCjmax"]
-#obsNames=["pTj1", "mjj"]
+
+#obsNames=["pT4l", "pTj1", "pTj2", "Nj", "mjj", "absdetajj", "dphijj", "pTHj", "pTHjj", "mHj", "TCjmax", "TBjmax", "pTj1_pTj2", "pT4l_pTHj", "absdetajj_mjj", "TCjmax_pT4l"]
+#obsNames=["TCjmax_pT4l"]
+#obsNames=["Nj_pT4l"]
 
 #obsNames=["mass4l", "pT4l", "rapidity4l", "Nj", "mjj", "absdetajj", "TCjmax", "pTj1", "Nj_2p5", "mjj_2p5", "absdetajj_2p5", "TCjmax_2p5", "pTj1_2p5", "Nj_4p7", "mjj_4p7", "absdetajj_4p7", "TCjmax_4p7", "pTj1_4p7"]
 #obsNames=["mass4l", "pT4l", "rapidity4l"]
-#obsNames=["Nj", "mjj", "absdetajj", "TCjmax", "pTj1", "Nj_2p5", "mjj_2p5", "absdetajj_2p5", "TCjmax_2p5", "pTj1_2p5", "Nj_4p7", "mjj_4p7", "absdetajj_4p7", "TCjmax_4p7", "pTj1_4p7"]
+obsNames=["mass4l", "pT4l", "rapidity4l", "Nj", "mjj", "absdetajj", "TCjmax", "pTj1", "Nj_2p5", "mjj_2p5", "absdetajj_2p5", "TCjmax_2p5", "pTj1_2p5", "Nj_4p7", "mjj_4p7", "absdetajj_4p7", "TCjmax_4p7", "pTj1_4p7"]
 
 #YEARS = ["2022", "2022EE", "2023preBPix", "2023postBPix", "2024"]
 #YEARS = ["2022EE"]

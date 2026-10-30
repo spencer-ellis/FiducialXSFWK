@@ -13,6 +13,7 @@ from math import trunc
 sys.path.append('../helperstuff')
 
 from paths import path
+from createDatacard import get_zzfloating_group_share
 
 PROD_MODES = ['ggH', 'VBFH', 'WH', 'ZH', 'ttH']
 PROD_XS_NAMES = {'ggH': 'ggH', 'VBFH': 'VBF', 'WH': 'WH', 'ZH': 'ZH', 'ttH': 'ttH'}
@@ -1076,9 +1077,20 @@ def createXSworkspace(obsName, channel, nBins, obsBin, observableBins, addfakeH,
         v2_flag = ''
         
     frac_qqzz = fractionsBackground['qqzz_'+channel+'_'+obsName+'_'+recobin+v2_flag]
+    frac_ggzz = fractionsBackground['ggzz_'+channel+'_'+obsName+'_'+recobin+v2_flag]
+
+    # The v3 ZZ fractions are relative to this reco bin's own ZZ yield, while
+    # zz_norm_<k> is the yield of the whole merged group k. Scale by this bin's
+    # MC share of the group so merged bins keep their predicted ZZ split.
+    if ZZ and physicalModel == 'v3':
+        _temp = __import__('inputs_bkgTemplate_'+obsName, globals(), locals(), ['expected_yield'], 0)
+        zz_group_share = get_zzfloating_group_share(_temp.expected_yield, obsName, obsBin, nBins)
+        print('ZZ group share for', obsName, 'bin', obsBin, ':', zz_group_share)
+        frac_qqzz *= zz_group_share
+        frac_ggzz *= zz_group_share
+
     frac_qqzz_var  = ROOT.RooRealVar("frac_qqzz_"+recobin+"_"+channel+"_"+year,"frac_qqzz_"+recobin+"_"+channel+"_"+year, frac_qqzz);
 
-    frac_ggzz = fractionsBackground['ggzz_'+channel+'_'+obsName+'_'+recobin+v2_flag]
     frac_ggzz_var = ROOT.RooRealVar("frac_ggzz_"+recobin+"_"+channel+"_"+year,"frac_ggzz_"+recobin+"_"+channel+"_"+year, frac_ggzz);
 
     frac_zjets = fractionsBackground['ZJetsCR_'+channel+'_'+obsName+'_'+recobin]

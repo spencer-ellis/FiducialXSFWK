@@ -770,7 +770,10 @@ def doTemplates(df_irr, df_inc, df_2j, binning, var, var_string, var_2nd='None')
                     else:
                         fractionBkg[bkg+'_'+f+'_'+var_string+'_recobin'+str(i)] = float(len_bin/len_tot)
                     if 'zzfloating' in obs_name:
-                        fractionBkg[bkg+'_'+f+'_'+var_string+'_recobin'+str(i)+'_v2'] = float(len_bin/yield_bkg['ZZ_'+f])
+                        if yield_bkg['ZZ_'+f] <= 0:
+                            fractionBkg[bkg+'_'+f+'_'+var_string+'_recobin'+str(i)+'_v2'] = 0.0
+                        else:
+                            fractionBkg[bkg+'_'+f+'_'+var_string+'_recobin'+str(i)+'_v2'] = float(len_bin/yield_bkg['ZZ_'+f])
                     # ------
                     sel = sel_bin_low & sel_bin_high & sel_fstate
                     if doubleDiff: sel &= sel_bin_2nd_low & sel_bin_2nd_high

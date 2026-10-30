@@ -55,29 +55,30 @@ def zx_effective_uncertainty(fractionsBackground, jet_category, year,
     return '%.6g/%.6g' % (effective_down, effective_up)
 
 ZZFLOATING_BIN_MERGES = {
+    # Only absdetajj_mjj merges ZZ bins in this production; every other reco bin keeps its own ZZ normalisation.
     # Specify zzfloating-only bin merging for variables here.
     # Example: Nj: [0, 1, [2, 3, 4]] means original bins 0 and 1 remain separate,
     # while original bins 2, 3, 4 share the same ZZ normalization parameter.
 
-    'pT4l': [0, 1, 2, 3, 4, 5, [6, 7], [8, 9, 10]],
+    # 'pT4l': [0, 1, 2, 3, 4, 5, [6, 7], [8, 9, 10]],
 
-    'Nj': [0, 1, [2, 3, 4]],
-    'pTj1': [0, 1, 2, [3, 4]],
-    'pTj2': [0, [1, 2, 3]],
-    'TBjmax': [0, [1, 2], [3, 4], [5, 6]],
-    'TCjmax': [0, [1, 2], [3, 4], [5, 6]],
-    'mjj': [0, [1, 2, 3]],
-    'absdetajj': [0, [1, 2], [3, 4]],
-    'dphijj': [0, [1, 2], [3, 4]],
-    'mHj': [0, 1, 2, [3, 4], [5, 6]],
-    'pTHj': [0, 1, 2, 3, [4, 5]],
-    'pTHjj': [0, [1, 2, 3]],
+    # 'Nj': [0, 1, [2, 3, 4]],
+    # 'pTj1': [0, 1, 2, [3, 4]],
+    # 'pTj2': [0, [1, 2, 3]],
+    # 'TBjmax': [0, [1, 2], [3, 4], [5, 6]],
+    # 'TCjmax': [0, [1, 2], [3, 4], [5, 6]],
+    # 'mjj': [0, [1, 2, 3]],
+    # 'absdetajj': [0, [1, 2], [3, 4]],
+    # 'dphijj': [0, [1, 2], [3, 4]],
+    # 'mHj': [0, 1, 2, [3, 4], [5, 6]],
+    # 'pTHj': [0, 1, 2, 3, [4, 5]],
+    # 'pTHjj': [0, [1, 2, 3]],
 
     'absdetajj_mjj': [0, [1, 2], 3],
-    'pTj1_pTj2': [0, 1, [2, 3, 4]],
-    'TCjmax_pT4l': [0, 1, 2, 3, 4, 5, 6, [7, 8]],
-    'pT4l_pTHj': [0, 1, 2, 3, 4, [5, 6]],
-    'Nj_pT4l': [0, 1, 2, 3, 4, 5, 6, 7, [8, 9], [10, 11]],
+    # 'pTj1_pTj2': [0, 1, [2, 3, 4]],
+    # 'TCjmax_pT4l': [0, 1, 2, 3, 4, 5, 6, [7, 8]],
+    # 'pT4l_pTHj': [0, 1, 2, 3, 4, [5, 6]],
+    # 'Nj_pT4l': [0, 1, 2, 3, 4, 5, 6, 7, [8, 9], [10, 11]],
 }
 
 def getSignalProdModes(prodMode):
@@ -112,6 +113,45 @@ def get_zzfloating_merged_bin_groups(obsName, nBins):
         merge_index = _get_zzfloating_bin_merge_index(obsName, i)
         groups.setdefault(merge_index, []).append(i)
     return [groups[idx] for idx in sorted(groups)]
+
+def get_zzfloating_bin_yield(expected_yield, obsBin, nBins):
+    """MC ZZ (qqZZ + ggZZ) yield of one reco bin, summed over years and final states."""
+    zz_key = 'ZZ_' + str(obsBin)
+    if zz_key in expected_yield:
+        return expected_yield[zz_key]
+    if 'ZZ' in expected_yield:
+        zz_val = expected_yield['ZZ']
+        if isinstance(zz_val, list):
+            return zz_val[obsBin] if obsBin < len(zz_val) else 1.0
+        if isinstance(zz_val, (int, float)):
+            return zz_val / nBins
+    return 1.0
+
+def get_zzfloating_group_yield(expected_yield, obsName, obsBin, nBins):
+    """MC ZZ yield of the merged group containing obsBin.
+
+    zz_norm_<k> is the ZZ yield of the whole merged group k, so every datacard
+    in the group must declare the rateParam with this same initial value.
+    """
+    merge_index = _get_zzfloating_bin_merge_index(obsName, obsBin)
+    return sum(get_zzfloating_bin_yield(expected_yield, i, nBins)
+               for i in range(nBins)
+               if _get_zzfloating_bin_merge_index(obsName, i) == merge_index)
+
+def get_zzfloating_group_share(expected_yield, obsName, obsBin, nBins):
+    """Fraction of its merged group's MC ZZ yield that falls in obsBin.
+
+    The ZZ fractions in inputs_bkg_* are normalized to the yield of their own
+    reco bin, so the workspace scales them by this share. Without it, each bin
+    of a merged group would receive the full zz_norm_<k> yield.
+    """
+    group_yield = get_zzfloating_group_yield(expected_yield, obsName, obsBin, nBins)
+    if group_yield <= 0.0:
+        group_size = len([i for i in range(nBins)
+                          if _get_zzfloating_bin_merge_index(obsName, i) ==
+                          _get_zzfloating_bin_merge_index(obsName, obsBin)])
+        return 1.0 / group_size
+    return get_zzfloating_bin_yield(expected_yield, obsBin, nBins) / group_yield
 
 def signalProcessName(baseProcessName, prodMode, boundaryName):
     if prodMode == 'SM':
@@ -581,19 +621,9 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
         # rateParam qqZZ floating
         merge_index = _get_zzfloating_bin_merge_index(obsName, obsBin)
         if physicalModel == 'v3':
-            zz_key = 'ZZ_' + str(obsBin)
-            if zz_key in expected_yield:
-                zz_yield = expected_yield[zz_key]
-            elif 'ZZ' in expected_yield:
-                zz_val = expected_yield['ZZ']
-                if isinstance(zz_val, list):
-                    zz_yield = zz_val[obsBin] if obsBin < len(zz_val) else 1.0
-                elif isinstance(zz_val, (int, float)):
-                    zz_yield = zz_val / nBins
-                else:
-                    zz_yield = 1.0
-            else:
-                zz_yield = 1.0
+            # Merged bins share one rateParam, so declare it with the group
+            # yield; createXSworkspace splits it among the bins by their MC share.
+            zz_yield = get_zzfloating_group_yield(expected_yield, obsName, obsBin, nBins)
             min_range_zz = 0.0
             max_range_zz = 5.0 * zz_yield
             file.write('zz_norm_'+str(merge_index)+' rateParam '+binName+' bkg_*zz '+str(zz_yield)+' ['+str(min_range_zz)+','+str(max_range_zz)+']\n')
@@ -722,7 +752,7 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
             file.write('-\n') # ZX
 
     # BR uncertainties 
-    ''' 
+    '''
     if physicalModel == 'v3':
         # In v3, apply BR uncertainties only to the corresponding final state
         file.write('BR_hzz4e lnN ')

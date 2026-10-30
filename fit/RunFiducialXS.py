@@ -17,7 +17,7 @@ sys.path.append(path['eos_path']+'inputs')
 
 from higgs_xsbr_13TeV import *
 from createXSworkspace import createXSworkspace
-from createDatacard import createDatacard, createDatacard_ggH, get_zzfloating_merged_bin_indices, _get_zzfloating_bin_merge_index
+from createDatacard import createDatacard, createDatacard_ggH, get_zzfloating_merged_bin_indices, _get_zzfloating_bin_merge_index, get_zzfloating_group_yield
 import pdfUnc_matrices
 
 script_dir = Path(__file__).resolve().parent
@@ -146,7 +146,22 @@ if (opt.YEAR == '2023full'): years = ['2023preBPix', '2023postBPix']
 if (opt.YEAR == '2022_2023'): years = ['2022', '2022EE', '2023preBPix', '2023postBPix']
 
 
-def add_uncertainties(year, zzfloating, JES, eff_unc, acc_unc, zz_uncs=False):
+def declared_nuisances(card_name):
+    """Names of the nuisances declared in a (combined) datacard.
+
+    combineCards.py drops rows that are '-' for every process, e.g. the ZX
+    0j1j rows of observables defined only for >=2 jets, so a group may not
+    reference them.
+    """
+    names = set()
+    with open(card_name) as card:
+        for line in card:
+            fields = line.split()
+            if len(fields) > 1 and fields[1] not in ('group', '='):
+                names.add(fields[0])
+    return names
+
+def add_uncertainties(year, zzfloating, JES, eff_unc, acc_unc, zz_uncs=False, card_name=None):
 
     nuis = [
         'CMS_eff_m',    
@@ -243,22 +258,17 @@ def add_uncertainties(year, zzfloating, JES, eff_unc, acc_unc, zz_uncs=False):
 
         nuis += jesuncs
 
+    if card_name is not None:
+        declared = declared_nuisances(card_name)
+        nuis = [n for n in nuis if n in declared]
+        nuislumi = [n for n in nuislumi if n in declared]
+
     return ' echo "nuis group = {} {}"'.format(' '.join(nuis),' '.join(nuislumi))
 
 def get_zzfloating_yield(obsName, obsBin, nBins):
+    """MC ZZ yield of the merged group containing obsBin (the zz_norm prefit value)."""
     _temp = __import__('inputs_bkgTemplate_'+obsName, globals(), locals(), ['expected_yield'], 0)
-    expected_yield = _temp.expected_yield
-
-    zz_key = 'ZZ_' + str(obsBin)
-    if zz_key in expected_yield:
-        return expected_yield[zz_key]
-    if 'ZZ' in expected_yield:
-        zz_val = expected_yield['ZZ']
-        if isinstance(zz_val, list):
-            return zz_val[obsBin] if obsBin < len(zz_val) else 1.0
-        if isinstance(zz_val, (int, float)):
-            return zz_val / nBins
-    return 1.0
+    return get_zzfloating_group_yield(_temp.expected_yield, obsName, obsBin, nBins)
 
 def get_zzfloating_scan_config(obsName, nBins, merge_index):
     representative_bin = None
@@ -368,9 +378,9 @@ def last_bin_remainder_expression(name, fitName, component_asimov_bins, total_xs
     terms = []
     args = []
     for i, xs in enumerate(component_asimov_bins[:-1]):
-        terms.append('@%d*%g' %(i, xs))
+        terms.append('@%d*%.10g' %(i, xs))
         args.append('r_totalMinusVBF_allExtrap_%s_%d' %(fitName, i))
-    expr = '(%g-%s)/%g' %(total_xs, '-'.join(terms), last_bin)
+    expr = '(%.10g-%s)/%.10g' %(total_xs, '-'.join(terms), last_bin)
     return '%s=expr;;%s("%s",%s)' %(name, name, expr, ','.join(args))
 
 def run_multidim_scan(obsName, workspace, poi, scan_name, points=100, low=0, high=10, freeze_nuisances=False, set_value=None, save_inactive_poi=False):
@@ -527,13 +537,14 @@ def do_vbf_measurement_configs(fitName, nBins, ggh_asimov_bins, otherprod_asimov
                 '1' if prodMode == 'VBFH' and i < nBins-1
                 else 'r_VBFH_allExtrap_%s_%d' %(fitName, i) if prodMode == 'VBFH'
                 else 'r_totalMinusVBF_allExtrap_%s_%d' %(fitName, i) if i < nBins-1
+                # Every non-VBF mode in the last bin follows the remainder, so the
+                # total non-VBF cross section stays fixed.
                 else last_bin_remainder_expression(
                     'r_totalMinusVBF_allExtrap_%s_%d' %(fitName, i),
                     fitName,
                     otherprod_asimov_bins,
                     total_otherprod_xs,
-                ) if prodMode == 'ggH'
-                else 'r_totalMinusVBF_allExtrap_%s_%d' %(fitName, i)
+                )
             ),
         })
     return configs
@@ -636,11 +647,12 @@ def runv3(years, observableBins, obsName, fitName, physicalModel, higgs_xs=None,
 
     cmd_combCards += '> %s' %card_name
 
-    cmd_addNuis = add_uncertainties(opt.YEAR, 'zzfloating' in obsName, JES, opt.EFF_UNC, opt.ACC_UNC, opt.ZZ_UNCS)
-    cmd_addNuis += ' >> hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt'
-
     processCmd(cmd_combCards)
     cmds.append(cmd_combCards)
+
+    cmd_addNuis = add_uncertainties(opt.YEAR, 'zzfloating' in obsName, JES, opt.EFF_UNC, opt.ACC_UNC, opt.ZZ_UNCS, card_name)
+    cmd_addNuis += ' >> hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt'
+
     processCmd(cmd_addNuis)
     cmds.append(cmd_addNuis)
 
@@ -667,10 +679,17 @@ def runv3(years, observableBins, obsName, fitName, physicalModel, higgs_xs=None,
                     prefix = 'smH_%s_' %prodMode
                     if process.startswith(prefix):
                         poi_info = config['poi_for_process'](prodMode, i)
-                        config['cmd_t2w'] = add_multisignal_map(config['cmd_t2w'], process, poi_info)
+                        if '=' in poi_info:
+                            # multiSignalModel builds plain POIs before expressions, so an
+                            # expression must be declared once, covering all its processes.
+                            config.setdefault('expr_maps', {}).setdefault(poi_info, []).append(process)
+                        else:
+                            config['cmd_t2w'] = add_multisignal_map(config['cmd_t2w'], process, poi_info)
                         break
 
     for config in do_vbf_configs:
+        for poi_info, processes in config.get('expr_maps', {}).items():
+            config['cmd_t2w'] += "--PO 'map=%s:%s' " %(','.join('.*/'+p for p in processes), poi_info)
         config['cmd_t2w'] += '-o %s ' %config['card_root']
 
     print(cmd_t2w)
@@ -714,7 +733,7 @@ def runv3(years, observableBins, obsName, fitName, physicalModel, higgs_xs=None,
                 upScanRange = 25
                 nPoints = 100
             elif obsName.replace('_zzfloating', '') == 'Nj':
-                downScanRange = -4
+                downScanRange = 0
                 upScanRange = 4
                 nPoints = 50
             else:
@@ -796,7 +815,7 @@ def runv3(years, observableBins, obsName, fitName, physicalModel, higgs_xs=None,
                 upScanRange = 10
                 nPoints = 100
             elif obsName.replace('_zzfloating', '') == 'Nj':
-                downScanRange = -4
+                downScanRange = 0
                 upScanRange = 4
                 nPoints = 50
             else:
@@ -1040,17 +1059,17 @@ def runFiducialXS():
             cmd = 'combineCards.py datacard_2022/hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt datacard_2022EE/hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt datacard_2023preBPix/hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt datacard_2023postBPix/hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt datacard_2024/hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt > hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt'
             processCmd(cmd,1)
             cmds.append(cmd)
-            cmd = add_uncertainties(opt.YEAR, 'zzfloating' in obsName, JES, opt.EFF_UNC, opt.ACC_UNC, opt.ZZ_UNCS)
+            cmd = add_uncertainties(opt.YEAR, 'zzfloating' in obsName, JES, opt.EFF_UNC, opt.ACC_UNC, opt.ZZ_UNCS, 'hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt')
         elif (opt.YEAR == '2022full'): 
             cmd = 'combineCards.py datacard_2022/hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt datacard_2022EE/hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt > hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt'
             processCmd(cmd,1)
             cmds.append(cmd)
-            cmd = add_uncertainties(opt.YEAR, 'zzfloating' in obsName, JES, opt.EFF_UNC, opt.ACC_UNC, opt.ZZ_UNCS)
+            cmd = add_uncertainties(opt.YEAR, 'zzfloating' in obsName, JES, opt.EFF_UNC, opt.ACC_UNC, opt.ZZ_UNCS, 'hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt')
         elif (opt.YEAR == '2023full'): 
             cmd = 'combineCards.py datacard_2023preBPix/hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt datacard_2023postBPix/hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt > hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt'
             processCmd(cmd,1)
             cmds.append(cmd)
-            cmd = add_uncertainties(opt.YEAR, 'zzfloating' in obsName, JES, opt.EFF_UNC, opt.ACC_UNC, opt.ZZ_UNCS)
+            cmd = add_uncertainties(opt.YEAR, 'zzfloating' in obsName, JES, opt.EFF_UNC, opt.ACC_UNC, opt.ZZ_UNCS, 'hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt')
         
         else:
             cmd = 'cp datacard_'+str(opt.YEAR)+'/hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt'
@@ -1061,7 +1080,7 @@ def runFiducialXS():
             processCmd(cmd,1)
             cmds.append(cmd)
 
-            cmd = add_uncertainties(opt.YEAR, 'zzfloating' in obsName, JES, opt.EFF_UNC, opt.ACC_UNC, opt.ZZ_UNCS)
+            cmd = add_uncertainties(opt.YEAR, 'zzfloating' in obsName, JES, opt.EFF_UNC, opt.ACC_UNC, opt.ZZ_UNCS, 'hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt')
 
         cmd += ' >> hzz4l_all_13TeV_xs_'+obsName+'_bin_'+physicalModel+'.txt'
         processCmd(cmd,1)

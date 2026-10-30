@@ -912,7 +912,8 @@ for i in range(nBins):
         elif _bin == 20: xtitle = "#sigma_{bin 2e2mu 10}"
         elif _bin == 21: xtitle = "#sigma_{bin 4l 10}"
     elif is_vbf_special:
-        xtitle = "#sigma_{"+vbf_sigma_subscript+"} (fb) [--"+vbf_option_name+"]"
+        # The curves are drawn in the signal strength POI; the quoted results are in fb.
+        xtitle = "r_{"+vbf_sigma_subscript+"} [--"+vbf_option_name+"]"
     elif 'kL' in obsName:
         xtitle = "#kappa_{#lambda}"
     elif obsName == 'mass4l' or obsName == 'mass4l_zzfloating':

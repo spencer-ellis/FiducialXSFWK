@@ -401,7 +401,10 @@ if __name__ == '__main__':
 
   #vars =  mass4l + leps + angles + jets + doubles
   #vars = [ 'rapidity4l', 'TCjmax', 'pTj1']
-  vars = mass4l
+  #vars = mass4l
+  #vars = ["pT4l", "pTj1", "pTj2", "Nj", "mjj", "absdetajj", "dphijj", "pTHj", "pTHjj", "mHj", "TCjmax", "TBjmax", "pTj1_pTj2", "pT4l_pTHj", "absdetajj_mjj", "TCjmax_pT4l"]
+
+  vars = ['Nj_pT4l']
   
   print(len(vars))
 
