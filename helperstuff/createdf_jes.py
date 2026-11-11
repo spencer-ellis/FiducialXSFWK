@@ -62,7 +62,10 @@ def weight(df, xsec, gen, lumi, additional = None):
     return df
 
 # Uproot to generate pandas
-def prepareTrees(year):
+# signals: list of signal samples to read (default: signals_original, i.e. the 125 GeV samples)
+def prepareTrees(year, signals=None):
+    if signals is None:
+        signals = signals_original
     d_sig = {}
     d_bkg = {}
 
@@ -87,7 +90,7 @@ def prepareTrees(year):
             raise RuntimeError('Required background file/tree could not be read for %s %s: %s (%s)' % (year, bkg, fname, exc))
 
     if year!='2016pre':
-        for signal in signals_original:
+        for signal in signals:
             # if(opt.AC==False):
             #fname = eos_path_sig + 'MC_samples_UL/%s_MELA' %year
             # else:
@@ -137,13 +140,15 @@ def xsecs(year):
     return xsec_sig, xsec_bkg
 '''
 
-def xsecs(year):
+def xsecs(year, signals=None):
+    if signals is None:
+        signals = signals_original
 
     xsec_sig = {}
     xsec_bkg = {}
 
-    d_sig, d_bkg = prepareTrees(year)
-    for signal in signals_original:
+    d_sig, d_bkg = prepareTrees(year, signals)
+    for signal in signals:
         
         #total_weight = d_sig[signal].pandas.df('overallEventWeight').overallEventWeight
         #puweight = d_sig[signal].pandas.df('PUWeight').PUWeight
@@ -199,7 +204,9 @@ def add_fin_state_reco(i, j):
 
 
 # Get the "number" of MC events to divide the weights
-def generators(year):
+def generators(year, signals=None):
+    if signals is None:
+        signals = signals_original
     gen_sig = {}
     gen_bkg = {}
 
@@ -216,7 +223,7 @@ def generators(year):
             raise RuntimeError('Required Counters histogram could not be read for %s %s: %s (%s)' % (year, bkg, fname, exc))
         
     if year!='2016pre':
-        for signal in signals_original:
+        for signal in signals:
             # if(opt.AC==False):
             #fname = eos_path_sig + 'MC_samples_UL/%s_MELA' %year
             # else:
@@ -242,8 +249,8 @@ def createDataframe(jesNames, year, dataFrame,isBkg,gen,xsec,signal,lumi,obs_rec
         b_sig.extend(['PUWeight', 'PUWeightUp', 'PUWeightDown'])
 
 
-    if signal == 'ggH125':
-        b_sig.append('ggH_NNLOPS_weight') #Additional entry for the weight in case of ggH
+    if signal.startswith('ggH'):
+        b_sig.append('ggH_NNLOPS_weight') #Additional entry for the weight in case of ggH (any mass)
 
     #elif signal == 'ZZTo4l':
         #b_sig.append('KFactor_EW_qqZZ')
@@ -295,7 +302,7 @@ def createDataframe(jesNames, year, dataFrame,isBkg,gen,xsec,signal,lumi,obs_rec
 
     df["FinState_reco"] = [add_fin_state_reco(i, j) for i, j in zip(df.Z1Flav, df.Z2Flav)]
 
-    if signal != 'ggH125':
+    if not signal.startswith('ggH'):
         df = weight(df, xsec, gen, lumi)
 
     elif 'ZZTo' in signal and isBkg:
@@ -321,7 +328,9 @@ def createDataframe(jesNames, year, dataFrame,isBkg,gen,xsec,signal,lumi,obs_rec
     return df
 
 # Set up data frames
-def dataframes(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd, include_pileup=False):
+def dataframes(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd, include_pileup=False, signals=None):
+    if signals is None:
+        signals = signals_original
     if year == '2016pre':
         lumi_bkg = 19.52
     elif year == '2016post':
@@ -351,9 +360,9 @@ def dataframes(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd, include_pileu
         
     d_df_sig = {}
     d_df_bkg = {}
-    d_sig, d_bkg = prepareTrees(year)
-    gen_sig, gen_bkg = generators(year)
-    xsec_sig, xsec_bkg = xsecs(year)
+    d_sig, d_bkg = prepareTrees(year, signals)
+    gen_sig, gen_bkg = generators(year, signals)
+    xsec_sig, xsec_bkg = xsecs(year, signals)
 
     for bkg in bkgs:
         print ('Processing', bkg, year)
@@ -364,7 +373,7 @@ def dataframes(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd, include_pileu
         print ('Background created')
 
     if year!='2016pre':
-        for signal in signals_original:
+        for signal in signals:
             print ('Processing', signal, year)
             if doubleDiff:
                 d_df_sig[signal] = createDataframe(jesNames, year, d_sig[signal],False,gen_sig[signal],xsec_sig[signal],signal,lumi_sig,obs_reco,obs_reco_2nd,include_pileup)
@@ -376,9 +385,11 @@ def dataframes(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd, include_pileu
     return d_df_sig, d_df_bkg
 
 
-# Merge WplusH125 and WminusH125
-def skim_df(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd = '', include_pileup=False):
-    d_df_sig, d_df_bkg = dataframes(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd, include_pileup)
+# Merge WplusH and WminusH of the same mass (WplusH125 + WminusH125 -> WH125)
+def skim_df(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd = '', include_pileup=False, signals=None):
+    if signals is None:
+        signals = signals_original
+    d_df_sig, d_df_bkg = dataframes(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd, include_pileup, signals)
     d_skim_sig = {}
     d_skim_bkg = {}
 
@@ -391,13 +402,15 @@ def skim_df(jesNames, year, doubleDiff, obs_reco, obs_reco_2nd = '', include_pil
     d_skim_bkg['ggzz'] = pd.concat(frames)
 
     if year!='2016pre':
-        frames = []
-        for signal in signals_original:
-            if (signal == 'WplusH125') or (signal == 'WminusH125'):
-                frames.append(d_df_sig[signal])
+        frames = {}
+        for signal in signals:
+            if signal.startswith('WplusH') or signal.startswith('WminusH'):
+                mass = signal.replace('WplusH', '').replace('WminusH', '')
+                frames.setdefault('WH' + mass, []).append(d_df_sig[signal])
             else:
                 d_skim_sig[signal] = d_df_sig[signal]
-        d_skim_sig['WH125'] = pd.concat(frames)
+        for name, f in frames.items():
+            d_skim_sig[name] = pd.concat(f)
 
 
     print ('%s SKIMMED df CREATED' %year)
