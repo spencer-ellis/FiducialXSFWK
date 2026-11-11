@@ -1,5 +1,18 @@
+"""
+Pileup uncertainty coefficients (PUWEIGHTNP_<obs>_<year>.py, PUWEIGHTNP_evts_<obs>_<year>.py) per process
+(signal, qqzz, ggzz), final state and reco bin: "down/up" ratios of the yields with PUWeightDown/PUWeight and
+PUWeightUp/PUWeight applied, as read by fit/createDatacard.py (pileupNP()).
+
+Signal: by default the samples of all five Higgs masses (--signalMasses 124,124p5,125,125p5,126) are used together.
+The pileup variation does not depend on a ~1 GeV change of m_H, and with only the 125 GeV samples single events with
+very large PUWeightUp (up to ~200 in 2024) dominate the +1 sigma variation of a reco bin. Each sample is weighted
+1/(number of masses used for its production mode), so the mix of production modes and the yields are unchanged.
+Samples whose file or "Counters" histogram is missing are skipped (with a warning). --signalMasses 125 gives the
+previous behaviour (125 GeV samples only).
+"""
 import optparse
 import os
+import re
 import sys
 
 import numpy as np
@@ -10,9 +23,12 @@ sys.path.append(os.path.abspath(os.path.join(script_dir, '..')))
 sys.path.append(os.path.abspath(os.path.join(script_dir, '../../helperstuff')))
 sys.path.append(os.path.abspath(os.path.join(script_dir, '../../inputs')))
 
+import uproot
+
 from binning import binning
 from createdf_jes import skim_df
 from observables import observables
+from paths import path
 
 print('Welcome in RunPileup!')
 
@@ -34,10 +50,61 @@ def parseOptions():
                       default=105.0, help='Lower bound for m4l')
     parser.add_option('', '--m4lUpper', dest='UPPER_BOUND', type='int',
                       default=160.0, help='Upper bound for m4l')
+    parser.add_option('', '--signalMasses', dest='SIGNALMASSES', type='string',
+                      default='124,124p5,125,125p5,126',
+                      help='Higgs mass samples used together for the signal, separated by "," (125: 125 GeV only)')
     return parser.parse_args()
 
 
 opt, args = parseOptions()
+
+SIGNAL_PROCS = ['ggH', 'VBFH', 'ttH', 'WminusH', 'WplusH', 'ZH']
+FAMILY_ORDER = ['ggH', 'VBFH', 'WH', 'ZH', 'ttH']  # order of the signal concatenation (as before)
+
+
+def sampleOK(year, sample):
+    fname = path['eos_path_sig'] + year + "_MC/" + sample + "/ZZ4lAnalysis_SKIMMED.root"
+    if not os.path.isfile(fname):
+        return False, 'file not found'
+    try:
+        keys = [k.split(';')[0] for k in uproot.open(fname).keys()]
+    except Exception as exc:
+        return False, 'cannot be opened (%s)' % exc
+    if 'Counters' not in keys:
+        return False, 'no Counters histogram (number of generated events unknown)'
+    if 'ZZTree/candTree' not in keys:
+        return False, 'no ZZTree/candTree'
+    return True, ''
+
+
+def signalSamples(year, masses):
+    """Signal samples of all requested masses that can be used, and the number of masses per production mode.
+    WplusH and WminusH of one mass are merged into WH<mass> by skim_df, so a mass is used for WH only if both exist."""
+    good = {}
+    for m in masses:
+        for p in SIGNAL_PROCS:
+            ok, why = sampleOK(year, p + m)
+            if not ok:
+                print('WARNING: %s %s%s not used for the pileup coefficients: %s' % (year, p, m, why))
+            good[(p, m)] = ok
+    samples, nmass = [], dict.fromkeys(FAMILY_ORDER, 0)
+    for m in masses:
+        use_w = good[('WminusH', m)] and good[('WplusH', m)]
+        for p in SIGNAL_PROCS:
+            fam = 'WH' if p.startswith('W') else p
+            if (good[(p, m)] and fam != 'WH') or (fam == 'WH' and use_w):
+                samples.append(p + m)
+        for fam in FAMILY_ORDER:
+            if fam == 'WH':
+                nmass[fam] += int(use_w)
+            else:
+                nmass[fam] += int(good[(fam, m)])
+    for fam, n in nmass.items():
+        if n == 0:
+            raise RuntimeError('%s: no usable %s sample for the masses %s' % (year, fam, masses))
+    print(year, 'signal samples for the pileup coefficients:', samples)
+    print(year, 'masses per production mode:', nmass)
+    return samples, nmass
 
 
 def computeRatio(nominal, upVar, dnVar):
@@ -189,15 +256,27 @@ print(obsname, years, m4l_low, m4l_high, obsname_out)
 
 obs_bins, doubleDiff = binning(opt.OBSNAME)
 
+masses = opt.SIGNALMASSES.split(',')
 d_sig_tmp = {}
 d_bkg_tmp = {}
 for year in years_MC:
+    signals, nmass = signalSamples(year, masses)
     if doubleDiff:
-        sig, bkg = skim_df([], year, doubleDiff, obs_reco, obs_reco_2nd, include_pileup=True)
+        sig, bkg = skim_df([], year, doubleDiff, obs_reco, obs_reco_2nd, include_pileup=True, signals=signals)
     else:
-        sig, bkg = skim_df([], year, doubleDiff, obs_reco, include_pileup=True)
+        sig, bkg = skim_df([], year, doubleDiff, obs_reco, include_pileup=True, signals=signals)
     d_bkg_tmp[year] = bkg
-    d_sig_tmp[year] = pd.concat([sig['ggH125'], sig['VBFH125'], sig['WH125'], sig['ZH125'], sig['ttH125']])
+    frames = []
+    for m in masses:
+        for fam in FAMILY_ORDER:
+            if fam + m not in sig:
+                continue
+            df = sig[fam + m]
+            if nmass[fam] != 1:
+                df = df.copy()
+                df['weight_histo_reco'] = df['weight_histo_reco'] / nmass[fam]
+            frames.append(df)
+    d_sig_tmp[year] = pd.concat(frames)
 
 d_bkg = {}
 d_sig = {}
