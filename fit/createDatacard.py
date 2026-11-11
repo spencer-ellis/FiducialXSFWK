@@ -192,6 +192,21 @@ def fixJes(jesnp, jes_evts_noWeight):
             '''
             return jesnp+' '
 
+def pileupNP(pileupnp, pileup_evts_noWeight):
+    '''
+    Pileup lnN entry from coefficients/PILEUP/RunPileup.py, written as computed ("down/up", i.e. kappa_down/kappa_up
+    as combine expects it). Unlike fixJes(), the direction of the variation is never changed: fixJes() writes a
+    single value > 1 (or flips the two sides) whenever down > up, which reverses the effect of pileup.
+    '''
+    if pileup_evts_noWeight <= 50:
+        return '- '
+    if pileupnp == '-':
+        return '- '
+    if '/' not in pileupnp:
+        # RunPileup writes a single number when down and up give the same ratio: keep it on both sides
+        return pileupnp + '/' + pileupnp + ' '
+    return pileupnp + ' '
+
 def pileupObservableKey(obsName):
     """Return the reco-branch portion used in RunPileup dictionary keys."""
     obsName_base = obsName.replace('_zzfloating', '')
@@ -964,12 +979,12 @@ def createDatacard(obsName, channel, nBins, obsBin, observableBins, physicalMode
 
         file.write('CMS_pileup_'+year_for_pileup_keys+' lnN ')
         for i in range(nSignalColumns+2): # Signals + out + fake
-            file.write(str(fixJes(pileupnp['signal_'+pileup_key],
-                                  pileup_evts_noWeight['signal_'+pileup_key])))
-        file.write(str(fixJes(pileupnp['qqzz_'+pileup_key],
-                              pileup_evts_noWeight['qqzz_'+pileup_key])))
-        file.write(str(fixJes(pileupnp['ggzz_'+pileup_key],
-                              pileup_evts_noWeight['ggzz_'+pileup_key])))
+            file.write(str(pileupNP(pileupnp['signal_'+pileup_key],
+                                    pileup_evts_noWeight['signal_'+pileup_key])))
+        file.write(str(pileupNP(pileupnp['qqzz_'+pileup_key],
+                                pileup_evts_noWeight['qqzz_'+pileup_key])))
+        file.write(str(pileupNP(pileupnp['ggzz_'+pileup_key],
+                                pileup_evts_noWeight['ggzz_'+pileup_key])))
         file.write('- \n') # none for Z+X
 
     file.close()
